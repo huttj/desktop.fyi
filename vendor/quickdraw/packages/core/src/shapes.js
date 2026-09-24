@@ -244,7 +244,7 @@ export function noteLayout(shape) {
   const boxW = p.w || NOTE_W
   const lines = wrapLines(p.text, font, fontSize, boxW - NOTE_PAD * 2, p.marks)
   const textH = lines.length * lh
-  const l = { lines, fontSize, font, lh, textH, boxW, boxH: Math.max(p.h || boxW, textH + NOTE_PAD * 2) }
+  const l = { lines, fontSize, font, lh, textH, boxW, boxH: Math.max(p.h || NOTE_W, textH + NOTE_PAD * 2) }
   layoutCache.set(p, l)
   return l
 }
@@ -918,9 +918,12 @@ export function scaleShape(shape, sx, sy, { handle } = {}) {
       return { ...shape, props: { ...p, scale: Math.max(0.2, (p.scale || 1) * sx), ...(p.autosize === false && p.w ? { w: p.w * sx } : {}) } }
     }
     case 'note': {
-      // the box resizes freely; the type keeps its size and rewraps
-      const lay = noteLayout(shape)
-      return { ...shape, props: { ...p, w: Math.max(60, lay.boxW * sx), h: Math.max(40, lay.boxH * sy) } }
+      // like text: the top or bottom edge sets the type size (the sticky
+      // grows with it), a side pull sets the width and the words rewrap, a
+      // corner scales the whole thing
+      if (handle === 't' || handle === 'b') return { ...shape, props: { ...p, scale: Math.max(0.3, (p.scale || 1) * sy) } }
+      if (Math.abs(sx - sy) > 1e-9) return { ...shape, props: { ...p, w: Math.max(60, noteLayout(shape).boxW * sx) } }
+      return { ...shape, props: { ...p, scale: Math.max(0.3, (p.scale || 1) * sx) } }
     }
     default:
       return shape

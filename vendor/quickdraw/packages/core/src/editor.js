@@ -755,6 +755,23 @@ export class Editor {
     if (this.readonly) return
     if (e.target !== this.canvas && e.target !== this.overlay && e.target !== this.container) return
     if (e.button === 2) return
+    // a finger on the board while typing pans (or pinches) and keeps the text
+    // open — the keyboard hides half the screen; a still tap commits as before
+    if (this.editing && e.pointerType === 'touch') {
+      e.preventDefault() // the text keeps its focus and keyboard
+      const s = this._evPoint(e)
+      this._pointers.set(e.pointerId, s)
+      this._ptrType.set(e.pointerId, e.pointerType)
+      try { this.container.setPointerCapture(e.pointerId) } catch {}
+      const pp = this._pinchPoints()
+      if (pp.length === 2) {
+        const [a, b] = pp
+        this.session = { type: 'pinch', dist: Math.hypot(a.x - b.x, a.y - b.y), center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, cam: { ...this.camera }, editing: true }
+      } else if (pp.length < 2) {
+        this.session = { type: 'panning', last: s, pressAt: s, editing: true }
+      }
+      return
+    }
     if (this.editing) this._commitText()
     this.container.focus({ preventScroll: true })
     const s = this._evPoint(e)
@@ -796,6 +813,7 @@ export class Editor {
     if (e.button === 1 || this.spaceHeld || this.tool === 'hand') {
       this.session = { type: 'panning', last: s, pressAt: s }
       this._syncCursor('grabbing')
+      // a still finger opens the context menu here too
       if (e.pointerType === 'touch') {
         const ss = this.session
         this._clearPressTimer()
@@ -909,10 +927,16 @@ export class Editor {
     // a palm lift in pen mode must not end the pen's live stroke
     if (this.penMode && e.pointerType === 'touch' && ss.type !== 'panning') return
     switch (ss.type) {
-      case 'panning':
+      case 'panning': {
         this.session = null
         this._syncCursor()
+        // a still tap beside the text while typing ends the edit; a drag only moved the view
+        if (ss.editing && ss.pressAt) {
+          const s = this._evPoint(e)
+          if (Math.hypot(s.x - ss.pressAt.x, s.y - ss.pressAt.y) < 6) this._commitText()
+        }
         return
+      }
       case 'drawing': return this._endDraw()
       case 'erasing': return this._endErase()
       case 'lasering': return this._endLaser()
@@ -1518,8 +1542,8 @@ export class Editor {
     ed.textarea.remove()
     if (shape) {
       const value = ed.field === 'label' ? shape.props.label : shape.props.text
-      if (!String(value || '').trim() && (shape.type === 'text' || (shape.type === 'note' && ed.fresh))) {
-        // empty text evaporates
+      if (!String(value || '').trim() && (shape.type === 'text' || shape.type === 'note')) {
+        // empty text (and an emptied note) evaporates
         this.store.remove([ed.id])
         this.selection.delete(ed.id)
       }
@@ -1693,7 +1717,7 @@ export class Editor {
   // text takes a side pull as its wrap width (see scaleShape).
   _resizeScales(handle, sx, sy, shapes, e) {
     const corner = handle.length === 2
-    const whole = shapes.every((sh) => ['image', 'text'].includes(sh.type))
+    const whole = shapes.every((sh) => ['image', 'text', 'note'].includes(sh.type))
     if (corner && (e.shiftKey || whole)) { const s = Math.max(sx, sy); return [s, s] }
     return [sx, sy]
   }
@@ -1723,7 +1747,7 @@ export class Editor {
         // shape origin maps through the anchor like any other point — except
         // text pulled by its top edge, whose new height (the type re-wraps)
         // is measured so the bottom edge stays exactly put
-        const y = scaled.type === 'text' && handle === 't' ? ay - localBounds(scaled).h : ay + (orig.y - ay) * sy
+        const y = (scaled.type === 'text' || scaled.type === 'note') && handle === 't' ? ay - localBounds(scaled).h : ay + (orig.y - ay) * sy
         this.store.put({ ...scaled, x: ax + (orig.x - ax) * sx, y })
       }
     })
@@ -2050,8 +2074,8 @@ export class Editor {
       const z = this._hitRotateZone(one, b, sx, sy)
       if (z) return z
     }
-    // a text box's whole top and bottom edge is its type-size handle
-    if (one?.type === 'text') {
+    // a text box's (or a sticky's) whole top and bottom edge is its type-size handle
+    if (one?.type === 'text' || one?.type === 'note') {
       const p = this.screenToPage(sx, sy)
       const l = one.rot ? toLocal(one, p.x, p.y) : { x: p.x - one.x, y: p.y - one.y }
       const lb = localBounds(one)

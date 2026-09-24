@@ -56,7 +56,8 @@ export function applyView(editor: Editor, view: View, { animate = 0, insetLeft =
   const box = b!
   const z = Math.max(0.1, Math.min(1, Math.min(w / (box.w + 240), h / (box.h + 240))))
   editor.setCamera({ x: w / (2 * z) - (box.x + box.w / 2) + insetLeft / z, y: h / (2 * z) - (box.y + box.h / 2), z }, { animate })
-  editor.setSelection(present)
+  // the hand only looks; the pointer picks things up
+  if (editor.tool !== 'hand') editor.setSelection(present)
   return true
 }
 

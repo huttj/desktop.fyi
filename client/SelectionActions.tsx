@@ -8,6 +8,8 @@ interface State {
   x: number
   y: number
   ids: string[]
+  /** Things as the person counts them (a group is one). */
+  count: number
   allPinned: boolean
   anyStale: boolean
 }
@@ -24,9 +26,13 @@ export function SelectionActions({ editor, me, owner, metas, metaVersion, sync }
     const compute = () => {
       const editing = (editor as unknown as { editing: unknown }).editing
       const b = editor.selectionBounds()
-      if (!b || editing) return setState(null)
+      // out of the way while one of the board's own menus is up
+      const menuOpen = !!editor.container.querySelector('.qd-menu-pop')
+      if (!b || editing || menuOpen) return setState(null)
       const now = Date.now()
       const ids: string[] = []
+      // what the person sees as one thing: a group counts once, however many shapes it holds
+      const units = new Set<string>()
       let allPinned = true
       let anyStale = false
       for (const id of editor.selection) {
@@ -34,22 +40,28 @@ export function SelectionActions({ editor, me, owner, metas, metaVersion, sync }
         if (!meta) continue
         if (me.id !== owner && meta.by !== me.id) continue
         ids.push(id)
+        const shape = editor.store.get(id)
+        units.add((shape && shape.typeName === 'shape' && shape.groupId) || id)
         if (!meta.pinned) allPinned = false
         if (!meta.pinned && provisionalAge(meta, now) > 0.05) anyStale = true
       }
       if (!ids.length) return setState(null)
       const s = editor.pageToScreen(b.x + b.w / 2, b.y + b.h)
-      setState({ x: Math.round(s.x), y: Math.round(s.y), ids, allPinned, anyStale })
+      setState({ x: Math.round(s.x), y: Math.round(s.y), ids, count: units.size, allPinned, anyStale })
     }
-    const offs = (['selection', 'camera', 'change', 'edit'] as const).map((ev) => editor.on(ev, compute))
+    const offs = (['selection', 'camera', 'change', 'edit', 'contextmenu'] as const).map((ev) => editor.on(ev, compute))
+    // menus come and go in the DOM without an event of their own
+    const mo = new MutationObserver(compute)
+    mo.observe(editor.container, { childList: true, subtree: true })
     compute()
     return () => {
       for (const off of offs) off()
+      mo.disconnect()
     }
   }, [editor, metas, metaVersion, me.id, owner])
 
   if (!state) return null
-  const n = state.ids.length
+  const n = state.count
   return (
     <div className="SelectionActions" style={{ transform: `translate(${state.x}px, ${state.y}px) translate(-50%, 10px)` }} onPointerDown={(e) => e.stopPropagation()}>
       <button type="button" className={`SelectionActions-button${state.allPinned ? ' SelectionActions-button--on' : ''}`} onClick={() => sync?.pin(state.ids, !state.allPinned)} title={state.allPinned ? 'Let it age again' : 'Keep this: it never fades'}>

@@ -98,7 +98,8 @@ export const SIZE_IDS = ['s', 'm', 'l', 'xl']
 
 // Font sizes for text shapes / labels, page px.
 export const FONT_SIZES = { s: 20, m: 26, l: 36, xl: 48 }
-export const NOTE_FONT_SIZES = { s: 16, m: 20, l: 26, xl: 32 }
+// notes set their type like text does — same sizes (the sticky grows to fit)
+export const NOTE_FONT_SIZES = FONT_SIZES
 
 export const DASH_IDS = ['draw', 'solid', 'dashed', 'dotted']
 export const FILL_IDS = ['none', 'semi', 'solid', 'pattern']

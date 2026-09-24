@@ -1301,7 +1301,7 @@ img.Avatar {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 41; /* over the toolbar: a selection at the bottom edge is still reachable */
+  z-index: 39; /* under Quickdraw's chrome, so its menus always win */
   display: flex;
   gap: 4px;
   padding: 4px;
@@ -1557,4 +1557,17 @@ img.Avatar {
 .CanvasRoot [contenteditable] {
   user-select: text;
   -webkit-user-select: text;
+}
+
+@media (max-width: 560px) {
+  .FeedPanel {
+    top: 50vh;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+  }
+  .CanvasRoot:has(.FeedPanel) .BoardHeader :is(.TopBar-button, .BoardHeader-owner) {
+    box-shadow: var(--panel-shadow);
+  }
 }

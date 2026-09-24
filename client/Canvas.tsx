@@ -276,6 +276,18 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       window.removeEventListener('keydown', onKey)
     }
   }, [editor, watching])
+  // On a phone the feed is a sheet: a tap anywhere else puts it away.
+  useEffect(() => {
+    if (!feedOpen || !window.matchMedia('(max-width: 560px)').matches) return
+    const onDown = (e: Event) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest('.FeedPanel, .TopBar, .BoardHeader')) return
+      setFeedOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [feedOpen])
+
   const watchedPeer = watching ? peers.find((p) => p.sessionId === watching) : null
   const watchedName = watchedPeer ? (watchedPeer.userId ? (me && watchedPeer.userId === me.id ? 'your other window' : nameOf(people, watchedPeer.userId)) : 'a visitor') : null
 
