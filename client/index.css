@@ -39,6 +39,20 @@ body,
   height: 100%;
 }
 
+/* The page never scrolls: on iOS a scrolled document (the keyboard nudges it
+   while typing) comes back on refresh and drags the fixed chrome with it. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+}
+
 body {
   font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
   background: var(--bg);
@@ -244,6 +258,7 @@ body {
 .CanvasRoot {
   position: fixed;
   inset: 0;
+  height: 100dvh;
   overflow: hidden;
   /* a long press is for the board's own menu, not the browser's text selection */
   user-select: none;
