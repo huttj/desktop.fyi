@@ -58,6 +58,7 @@ const rotateCursor = (deg) => {
   return c
 }
 const LONG_PRESS = 500 // ms of a still touch before the context menu opens
+const SNAP_PX = 6 // screen pixels within which a moving edge settles onto another
 
 export const ALIGN_MODES = ['left', 'center', 'right', 'top', 'middle', 'bottom']
 
@@ -1473,7 +1474,10 @@ export class Editor {
       ta.style.paddingTop = Math.max(0, h / 2 - fs * 1.3) / 2 + 'px'
     } else {
       lay = textLayout(shape)
-      w = Math.max(lay.w + 4, 40)
+      const p0 = shape.props
+      // a fixed-width text wraps at exactly the width the canvas wrapped at;
+      // an autosized one gets a little slack so nothing wraps that shouldn't
+      w = p0.autosize === false && p0.w ? p0.w : Math.max(lay.w + 4, 40)
       h = lay.h + 4
       const p = shape.props
       align = p.align === 'middle' ? 'center' : p.align === 'end' ? 'right' : 'left'
@@ -1727,6 +1731,7 @@ export class Editor {
     const ss = this.session
     ss.last = p
     ss.shift = !!e.shiftKey
+    ss.noSnap = !!e.metaKey
     if (e.altKey && !ss.copied) this._copyForDrag()
     else if (!e.altKey && ss.copied) this._uncopyForDrag()
     this._applyTranslate()
@@ -1737,11 +1742,59 @@ export class Editor {
     let dx = ss.last.x - ss.start.x
     let dy = ss.last.y - ss.start.y
     if (ss.shift) Math.abs(dx) > Math.abs(dy) ? (dy = 0) : (dx = 0)
+    ss.snapGuides = null
+    if (!ss.noSnap) {
+      // the moving box's edges and centre lines settle onto everyone else's
+      let b = null
+      for (const orig of ss.orig.values()) b = boundsUnion(b, pageBounds(orig))
+      if (b) {
+        const tol = SNAP_PX / this.camera.z
+        const cands = ss.cands || (ss.cands = this._snapCandidates(new Set(ss.orig.keys())))
+        const guides = []
+        const mx = { x: b.x + dx, w: b.w }, my = { y: b.y + dy, h: b.h }
+        if (!(ss.shift && dx === 0)) {
+          const sx = this._snapAxis([mx.x, mx.x + mx.w / 2, mx.x + mx.w], cands.xs, tol)
+          if (sx) { dx += sx.d; guides.push({ axis: 'x', at: sx.at, from: Math.min(my.y, sx.b.y), to: Math.max(my.y + my.h, sx.b.y + sx.b.h) }) }
+        }
+        if (!(ss.shift && dy === 0)) {
+          const sy = this._snapAxis([my.y, my.y + my.h / 2, my.y + my.h], cands.ys, tol)
+          const fx = b.x + dx // the box's settled left, after any x snap
+          if (sy) { dy += sy.d; guides.push({ axis: 'y', at: sy.at, from: Math.min(fx, sy.b.x), to: Math.max(fx + b.w, sy.b.x + sy.b.w) }) }
+        }
+        if (guides.length) ss.snapGuides = guides
+      }
+    }
     this.store.transact(() => {
       for (const [id, orig] of ss.orig) {
         if (this.store.has(id)) this.store.update(id, { x: orig.x + dx, y: orig.y + dy })
       }
     })
+  }
+  // ---- snapping ------------------------------------------------------------
+  // While a box moves or resizes, its edges and centre lines settle onto the
+  // edges and centre lines of everything else within a few screen pixels, and
+  // the overlay draws the line it settled on. ⌘ (or ctrl on Windows) held
+  // while dragging turns it off.
+  _snapCandidates(excludeIds) {
+    const xs = [], ys = []
+    for (const s of this.shapesSorted()) {
+      if (excludeIds.has(s.id)) continue
+      const b = pageBounds(s)
+      xs.push({ at: b.x, b }, { at: b.x + b.w / 2, b }, { at: b.x + b.w, b })
+      ys.push({ at: b.y, b }, { at: b.y + b.h / 2, b }, { at: b.y + b.h, b })
+    }
+    return { xs, ys }
+  }
+  // the closest candidate to any of the moving lines, within tol: { d, at, b }
+  _snapAxis(moving, cands, tol) {
+    let best = null
+    for (const m of moving) {
+      for (const c of cands) {
+        const d = c.at - m
+        if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, at: c.at, b: c.b }
+      }
+    }
+    return best
   }
   _endTranslate() {
     this.store.endBatch()
@@ -1767,6 +1820,23 @@ export class Editor {
     if (ss.rotated) return this._dragResizeRotated(p, e)
     const { handle, init } = ss
     const center = this._fromCenter(e)
+    // the pulled edges settle onto other shapes' edges and centre lines
+    ss.snapGuides = null
+    if (!e.metaKey) {
+      const tol = SNAP_PX / this.camera.z
+      const cands = ss.cands || (ss.cands = this._snapCandidates(new Set(ss.orig.keys())))
+      const guides = []
+      let { x: px, y: py } = p
+      if (handle.includes('l') || handle.includes('r')) {
+        const s = this._snapAxis([px], cands.xs, tol)
+        if (s) { px = s.at; guides.push({ axis: 'x', at: s.at, from: Math.min(init.y, s.b.y), to: Math.max(init.y + init.h, s.b.y + s.b.h) }) }
+      }
+      if (handle.includes('t') || handle.includes('b')) {
+        const s = this._snapAxis([py], cands.ys, tol)
+        if (s) { py = s.at; guides.push({ axis: 'y', at: s.at, from: Math.min(init.x, s.b.x), to: Math.max(init.x + init.w, s.b.x + s.b.w) }) }
+      }
+      if (guides.length) { ss.snapGuides = guides; p = { x: px, y: py } }
+    }
     const ax = center ? init.x + init.w / 2 : handle.includes('l') ? init.x + init.w : init.x // anchor
     const ay = center ? init.y + init.h / 2 : handle.includes('t') ? init.y + init.h : init.y
     // scales clamp positive — dragging past the anchor pins at tiny, no flips
@@ -2893,6 +2963,26 @@ export class Editor {
       ctx.strokeStyle = t.selection
       ctx.lineWidth = 2
       ctx.strokeRect(tl.x, tl.y, (b.w + 6) * cam.z, (b.h + 6) * cam.z)
+    }
+
+    // snap guides: the line a moving or resizing box just settled on
+    const guides = (this.session?.type === 'translating' || this.session?.type === 'resizing') && this.session.snapGuides
+    if (guides) {
+      ctx.save()
+      ctx.strokeStyle = t.selection
+      ctx.globalAlpha = 0.5
+      ctx.lineWidth = 1
+      ctx.setLineDash([])
+      const pad = 24 / cam.z
+      for (const g of guides) {
+        const a = g.axis === 'x' ? this.pageToScreen(g.at, g.from - pad) : this.pageToScreen(g.from - pad, g.at)
+        const b = g.axis === 'x' ? this.pageToScreen(g.at, g.to + pad) : this.pageToScreen(g.to + pad, g.at)
+        ctx.beginPath()
+        if (g.axis === 'x') { const x = Math.round(a.x) + 0.5; ctx.moveTo(x, a.y); ctx.lineTo(x, b.y) }
+        else { const y = Math.round(a.y) + 0.5; ctx.moveTo(a.x, y); ctx.lineTo(b.x, y) }
+        ctx.stroke()
+      }
+      ctx.restore()
     }
 
     // marquee

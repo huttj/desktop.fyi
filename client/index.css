@@ -280,6 +280,7 @@ body {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
   --panel: rgba(255, 255, 255, 0.92);
+  --panel-glass: rgba(255, 255, 255, 0.72);
   --panel-solid: #ffffff;
   --panel-fg: #211d14;
   --panel-muted: rgba(33, 29, 20, 0.55);
@@ -292,6 +293,7 @@ body {
 
 .CanvasRoot[data-theme='dark'] {
   --panel: rgba(19, 17, 13, 0.85);
+  --panel-glass: rgba(19, 17, 13, 0.66);
   --panel-solid: #1c1a16;
   --panel-fg: rgba(255, 255, 255, 0.9);
   --panel-muted: rgba(255, 255, 255, 0.55);
@@ -1162,12 +1164,12 @@ img.Avatar {
   display: flex;
   flex-direction: column;
   border-radius: 14px;
-  background: var(--panel);
+  background: var(--panel-glass);
   color: var(--panel-fg);
   border: 1px solid var(--panel-line);
   box-shadow: var(--panel-shadow-strong);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
   pointer-events: all;
 }
 
@@ -1175,7 +1177,7 @@ img.Avatar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 10px 8px 18px;
+  padding: 6px 6px 0 16px;
   font-size: 14px;
 }
 
@@ -1185,7 +1187,7 @@ img.Avatar {
 }
 
 .FeedPanel .FeedSection {
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
 .FeedPanel .FeedSection + .FeedSection {

@@ -271,7 +271,8 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
 
       // A tap on a link follows it, whatever the tool: the hand tool never would, and a
       // finger wobbles past Quickdraw's own click threshold on the select tool.
-      // Links to desktop.fyi stay in this tab; anything else opens a new one.
+      // Links to desktop.fyi stay in this tab; anything else (or a ⌘/ctrl/middle click) opens a new one.
+      ed.container.addEventListener('pointerdown', (e) => { lastPress = { newTab: e.metaKey || e.ctrlKey || e.button === 1, at: Date.now() } }, true)
       ed.openLink = openLink
       installLinkTaps(ed)
       installPasteReporting(ed, setNotice)
@@ -348,8 +349,8 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
     if (!editor) return
     const onHash = () => {
       const view = parseView(window.location.hash)
-      if (!view || view.kind !== 'items') return
-      showLayersFor(view.ids)
+      if (!view) return
+      if (view.kind === 'items') showLayersFor(view.ids)
       if (!applyView(editor, view, { animate: 260, inset: panelInset() })) setNotice('That item is no longer on this desktop')
     }
     window.addEventListener('hashchange', onHash)
@@ -470,11 +471,15 @@ function installLinkTaps(ed: Editor) {
   })
 }
 
-/** Our own addresses navigate in place; the rest open in a new tab. */
+/** The keys held on the last press on the board: a ⌘/ctrl/middle click asks for a new tab. */
+let lastPress = { newTab: false, at: 0 }
+
+/** Our own addresses navigate in place; the rest, or a ⌘-click, open a new tab. */
 function openLink(href: string) {
+  const wantsTab = lastPress.newTab && Date.now() - lastPress.at < 2000
   try {
     const url = new URL(href, window.location.href)
-    if (url.origin === window.location.origin || url.hostname === 'desktop.fyi') {
+    if (!wantsTab && (url.origin === window.location.origin || url.hostname === 'desktop.fyi')) {
       navigate(url.pathname + url.search + url.hash)
       return
     }
