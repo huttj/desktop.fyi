@@ -199,8 +199,10 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
         setOwner(info.owner)
         fresh.current.owner = info.owner
         if (fresh.current.view === 'owner') {
-          fresh.current.view = info.owner
-          setViewState(info.owner)
+          // your own desktop opens on itself; anyone else's opens on your layer over it
+          const start = me && me.id !== info.owner ? me.id : info.owner
+          fresh.current.view = start
+          setViewState(start)
         }
       },
       onMetas: (metas, reset) => {
