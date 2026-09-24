@@ -158,7 +158,7 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
       if (framed.current) return
       framed.current = true
       if (initialView) {
-        if (!applyView(ed, initialView)) {
+        if (!applyView(ed, initialView, { insetLeft: panelInset() })) {
           setNotice('That item is no longer on this desktop')
           if (store.shapes().length) ed.fitContent({ maxZoom: 1 })
         }
@@ -225,12 +225,15 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
   useEffect(() => (editor ? installFreshness(editor, fresh.current) : undefined), [editor])
 
   // A link to items on this very desktop (from the feed, say) only changes the hash: follow it.
+  const feedOpenRef = useRef(feedOpen)
+  feedOpenRef.current = feedOpen
+  const panelInset = () => (feedOpenRef.current ? Math.min(400, window.innerWidth * 0.5) : 0)
   useEffect(() => {
     if (!editor) return
     const onHash = () => {
       const view = parseView(window.location.hash)
       if (!view || view.kind !== 'items') return
-      if (!applyView(editor, view, { animate: 260 })) setNotice('That item is no longer on this desktop')
+      if (!applyView(editor, view, { animate: 260, insetLeft: panelInset() })) setNotice('That item is no longer on this desktop')
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)

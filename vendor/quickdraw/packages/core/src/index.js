@@ -11,9 +11,10 @@ export {
 } from './palette.js'
 export {
   pageBounds, localBounds, drawShape, hitShape, imageFrame, runsIn, mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout,
-  markAt, hasMark, setMark, normalizeMarks,
+  markAt, hasMark, setMark, normalizeMarks, textHitAt, textOffsetAt,
 } from './shapes.js'
 export { openUrl, normalizeText } from './editor.js'
+export { TextSurface } from './textedit.js'
 export { strokeOutline } from './freehand.js'
 export { sceneToSvg, shapeToSvg } from './svg.js'
 export { BINDABLE, anchorAt, anchorPoint, boundTerminals, rebindArrow, outlinePolygon } from './bindings.js'

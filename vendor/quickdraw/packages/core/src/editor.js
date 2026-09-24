@@ -8,12 +8,13 @@ import { themeOf, SIZES, FONT_SIZES, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GR
 import {
   localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, imageFrame,
-  mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark,
+  mapMarks, textLinkAt, textHitAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark,
 } from './shapes.js'
 import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith } from './geometry.js'
 import { sceneToSvg } from './svg.js'
 import { BINDABLE, insideShape, anchorAt, rebindArrow, remapBindings } from './bindings.js'
 import { parseTldrawClipboard, convertTldrawContent } from './tldraw.js'
+import { TextSurface } from './textedit.js'
 
 const ZOOM_MIN = 0.05
 const ZOOM_MAX = 8
@@ -730,6 +731,10 @@ export class Editor {
     // blurring the board) must not leave a sticky space-pan behind
     this._onBlur = () => { this.spaceHeld = false; this._syncCursor() }
     c.addEventListener('blur', this._onBlur)
+    // a browser without overflow: clip may still scroll the board to chase a
+    // caret; put it straight back
+    this._onScroll = () => { if (c.scrollLeft || c.scrollTop) { c.scrollLeft = 0; c.scrollTop = 0 } }
+    c.addEventListener('scroll', this._onScroll)
     this._ro = new ResizeObserver(() => this.requestRender())
     this._ro.observe(c)
     // web fonts landing after the first paint: re-measure and redraw
@@ -864,7 +869,9 @@ export class Editor {
       case 'cropping': return this._dragCrop(p, e)
       case 'pressing': {
         if (Math.hypot(s.x - ss.start.x, s.y - ss.start.y) > 4) {
-          // the press became a drag — start translating (alt = drag a copy)
+          // the press became a drag — start translating (alt = drag a copy);
+          // a linked shape held for a drag gets selected now
+          if (ss.link && ss.hit && !this.selection.has(ss.hit.id)) this.setSelection(ss.pick)
           this.session = null
           this._beginTranslate(ss.page, e)
           if (this.session) this._dragTranslate(p, e)
@@ -923,6 +930,9 @@ export class Editor {
         this.requestRender()
         return
       case 'pressing': {
+        // a clean click on a link follows it (a drag would have replaced
+        // this session, so a linked shape still moves)
+        if (ss.link) { this.session = null; openUrl(ss.link); return }
         // a clean click: selection settles to the pressed shape (or clears);
         // an additive click toggles — unless the down-stroke just added it
         if (ss.hit) this.setSelection(ss.additive ? (ss.added ? [...this.selection] : this._toggled(ss.pick)) : ss.pick)
@@ -1236,16 +1246,21 @@ export class Editor {
 
   // The text surface: a real textarea floated over the canvas, styled to
   // match the render, so editing feels native (IME, selection, caret).
-  _startTextEdit(id, field, { fresh = false } = {}) {
+  // at: the page point of the double-click that opened the edit — the word
+  // there gets selected (the caret lands there on whitespace); a third
+  // quick click selects everything. Without it (Enter), all is selected.
+  _startTextEdit(id, field, { fresh = false, at = null } = {}) {
     this._commitText()
     const shape = this.store.get(id)
     if (!shape) return
     if (!fresh) this.store.beginBatch()
-    const ta = document.createElement('textarea')
-    ta.className = 'qd-text-edit'
-    ta.value = field === 'label' ? shape.props.label || '' : shape.props.text || ''
-    ta.spellcheck = false
-    this.container.appendChild(ta)
+    // the surface shows the text as it will be drawn, marks and all
+    const ta = new TextSurface({ hlColor: this.theme.colors.yellow.note })
+    ta.render(
+      field === 'label' ? shape.props.label || '' : shape.props.text || '',
+      (field === 'label' ? shape.props.labelMarks : shape.props.marks) || [],
+    )
+    this.container.appendChild(ta.el)
     // pending: marks toggled with nothing selected — they land on whatever
     // is typed next at that spot, and are forgotten when the caret moves
     this.editing = { id, field, textarea: ta, fresh, pending: {}, caret: ta.selectionStart }
@@ -1254,34 +1269,35 @@ export class Editor {
     const sync = () => {
       const cur = this.store.get(id)
       if (!cur) return
+      let text = ta.value, marks = ta.marks
       // a pasted tab would render eight columns wide here and one on the
       // canvas: make it spaces, keeping the caret where it was
-      if (ta.value.includes('\t')) {
+      if (text.includes('\t')) {
         const at = ta.selectionStart
-        const before = ta.value.slice(0, at)
-        ta.value = normalizeText(ta.value)
-        const at2 = normalizeText(before).length
-        ta.setSelectionRange(at2, at2)
+        const at2 = normalizeText(text.slice(0, at)).length
+        const fixed = normalizeText(text)
+        marks = mapMarks(marks, text, fixed) || []
+        text = fixed
+        ta.render(text, marks, [at2, at2])
       }
       const old = String((field === 'label' ? cur.props.label : cur.props.text) || '')
-      const patch = field === 'label' ? { label: ta.value } : { text: ta.value }
-      // marks ride along with the edit (see mapMarks), and pending ones land
-      // on what was just typed
-      let marks = cur.props[mk]?.length ? mapMarks(cur.props[mk], old, ta.value) : []
+      // marks toggled with nothing selected land on what was just typed
       const keys = Object.keys(ed.pending)
-      if (keys.length && ta.value.length > old.length) {
+      if (keys.length && text.length > old.length) {
         let a = 0
-        while (a < old.length && a < ta.value.length && old[a] === ta.value[a]) a++
-        const b2 = a + (ta.value.length - old.length)
+        while (a < old.length && a < text.length && old[a] === text[a]) a++
+        const b2 = a + (text.length - old.length)
         for (const k of keys) marks = setMark(marks, a, b2, k, ed.pending[k])
+        ta.render(text, marks)
       }
+      const patch = field === 'label' ? { label: text } : { text }
       patch[mk] = marks.length ? marks : undefined
       this.store.update(id, { props: patch })
       ed.caret = ta.selectionStart
       this._layoutTextEditor()
       this.emit('edit')
     }
-    ta.addEventListener('input', sync)
+    ta.addEventListener('qdinput', sync)
     // the caret wandering off drops pending marks; the toolbar follows the selection
     const onCaret = () => {
       if (ta.selectionStart !== ed.caret || ta.selectionEnd !== ta.selectionStart) {
@@ -1308,11 +1324,43 @@ export class Editor {
       if (key) { e.preventDefault(); this.toggleMark(key); return }
       if (k === 'k' && !e.shiftKey) { e.preventDefault(); this.promptLink() }
     })
-    ta.addEventListener('pointerdown', (e) => e.stopPropagation())
+    ta.addEventListener('pointerdown', (e) => {
+      e.stopPropagation()
+      // the third click of a triple-click lands here, on the surface that
+      // the double-click just opened: it selects everything
+      if (ed.openedAt && performance.now() - ed.openedAt < 500) {
+        const s = this._evPoint(e)
+        if (Math.hypot(s.x - ed.openedAtPoint.x, s.y - ed.openedAtPoint.y) < 12) {
+          e.preventDefault()
+          ta.select()
+          this.emit('edit')
+        }
+      }
+      ed.openedAt = 0
+    })
     ta.addEventListener('blur', () => this._commitText())
     this._layoutTextEditor()
     ta.focus()
-    if (!fresh) ta.select()
+    if (at && !fresh) {
+      const l = toLocal(shape, at.x, at.y)
+      const text = ta.value
+      const hit = textHitAt(shape, l.x, l.y)
+      if (!hit) ta.select()
+      else if (hit.index >= 0 && /\S/.test(text[hit.index])) {
+        // the word the point is on
+        let s = hit.index, e = hit.index + 1
+        while (s > 0 && /\S/.test(text[s - 1])) s--
+        while (e < text.length && /\S/.test(text[e])) e++
+        ta.setSelectionRange(s, e)
+        ed.caret = s
+      } else {
+        // whitespace, or past the end: just the caret
+        ta.setSelectionRange(hit.offset, hit.offset)
+        ed.caret = hit.offset
+      }
+      ed.openedAt = performance.now()
+      ed.openedAtPoint = this.pageToScreen(at.x, at.y)
+    } else if (!fresh) ta.select()
     this.emit('edit')
     this.requestRender()
   }
@@ -1323,14 +1371,16 @@ export class Editor {
     if (!shape) return
     const z = this.camera.z
     const ta = ed.textarea
-    let lay, pos, w, h, align = 'left'
+    let lay, w, h, align = 'left'
+    let ox = 0, oy = 0 // where the surface sits inside the shape, page units
     if (shape.type === 'note') {
       lay = noteLayout(shape)
       const s = shape.props.scale || 1
-      // anchor the textarea where the canvas draws the (vertically centered)
+      // anchor the surface where the canvas draws the (vertically centered)
       // text block, so committing doesn't jump the text — 20 = NOTE_PAD
       const yStart = Math.max(20, lay.boxH / 2 - lay.textH / 2)
-      pos = this.pageToScreen(shape.x + 20 * s, shape.y + yStart * s)
+      ox = 20 * s
+      oy = yStart * s
       w = (lay.boxW - 40) * s
       h = lay.textH * s
       align = shape.props.align === 'start' ? 'left' : shape.props.align === 'end' ? 'right' : 'center'
@@ -1340,7 +1390,8 @@ export class Editor {
       const p = shape.props
       const fs = FONT_SIZES[p.labelSize || 's']
       const fam = FONTS[p.font || 'draw']
-      pos = this.pageToScreen(shape.x + 8, shape.y + 8)
+      ox = 8
+      oy = 8
       w = p.w - 16
       h = p.h - 16
       align = 'center'
@@ -1349,7 +1400,6 @@ export class Editor {
       ta.style.paddingTop = Math.max(0, (h * z) / 2 - fs * 1.3 * z) / 2 + 'px'
     } else {
       lay = textLayout(shape)
-      pos = this.pageToScreen(shape.x, shape.y)
       w = Math.max(lay.w + 4, 40)
       h = lay.h + 4
       const p = shape.props
@@ -1357,6 +1407,11 @@ export class Editor {
       ta.style.font = `500 ${lay.fontSize * z}px ${lay.font}`
       ta.style.lineHeight = lay.lh * z + 'px'
     }
+    // the surface is laid at the shape's unrotated place, then turned about
+    // the shape's centre like the canvas turns the shape: text is edited in
+    // place, at whatever angle it sits
+    const pos = this.pageToScreen(shape.x + ox, shape.y + oy)
+    const lb = localBounds(shape)
     const col = this.theme.colors[shape.props.color || 'black']
     ta.style.left = pos.x + 'px'
     ta.style.top = pos.y + 'px'
@@ -1364,6 +1419,8 @@ export class Editor {
     ta.style.height = h * z + 'px'
     ta.style.textAlign = align
     ta.style.color = shape.type === 'note' ? this.theme.noteText : col.stroke
+    ta.style.transformOrigin = `${(lb.x + lb.w / 2 - ox) * z}px ${(lb.y + lb.h / 2 - oy) * z}px`
+    ta.style.transform = shape.rot ? `rotate(${shape.rot}rad)` : ''
   }
   // ---- formatting while editing --------------------------------------------
   // the style at the caret (or across the selection), pending toggles included
@@ -1396,11 +1453,13 @@ export class Editor {
     if (s === e) {
       const on = key in ed.pending ? ed.pending[key] : !!markAt(marks, Math.max(0, s - 1))[key]
       ed.pending[key] = on ? false : value
+      ed.caret = s // the key-up that follows the shortcut is not a caret move
       this.emit('edit')
       return
     }
     const next = setMark(marks, s, e, key, !hasMark(marks, s, e, key), value)
     this.store.update(ed.id, { props: { [mk]: next.length ? next : undefined } })
+    ta.render(ta.value, next, [s, e]) // shown at once
     ta.focus()
     ta.setSelectionRange(s, e)
     this.emit('edit')
@@ -1424,6 +1483,7 @@ export class Editor {
     const clean = String(href || '').trim()
     const next = setMark(cur.props[mk] || [], s, e, 'href', !!clean, clean)
     this.store.update(ed.id, { props: { [mk]: next.length ? next : undefined } })
+    ta.render(ta.value, next, [s, e])
     ta.focus()
     ta.setSelectionRange(s, e)
     this.emit('edit')
@@ -1503,17 +1563,17 @@ export class Editor {
     if (this.focusedGroup && hit?.groupId !== this.focusedGroup) this.focusedGroup = null
     if (hit) {
       // a press on a link (the badge of a shape that links, or a linked run
-      // of its text) follows it instead
-      const href = this._linkAt(hit, p)
-      if (href) { openUrl(href); return }
+      // of its text) follows it on release — if it didn't turn into a drag
+      const link = this._linkAt(hit, p)
       // a grouped shape brings its siblings along (unless its group is focused)
       const pick = this._withGroups([hit.id])
       const wasSelected = this.selection.has(hit.id)
-      if (!wasSelected && !additive) this.setSelection(pick)
+      // (a press on a link leaves the selection alone until it turns out to be a drag)
+      if (!wasSelected && !additive && !link) this.setSelection(pick)
       else if (additive && !wasSelected) this.setSelection([...this.selection, ...pick])
       // `added` marks a shape shift-selected on the way down, so the clean
       // click on the way up keeps it instead of toggling it straight back out
-      this.session = { type: 'pressing', hit, pick, additive, added: additive && !wasSelected, start: s, page: p, pressAt: s }
+      this.session = { type: 'pressing', hit, pick, additive, added: additive && !wasSelected, start: s, page: p, pressAt: s, link }
     } else {
       this.session = { type: 'marquee', origin: p, rect: null, additive, base: [...this.selection], pressAt: s }
       if (!additive) this.setSelection([])
@@ -2038,12 +2098,12 @@ export class Editor {
       }
       if (hit.type === 'text' || hit.type === 'note') {
         this.setSelection([hit.id])
-        this._startTextEdit(hit.id, 'text')
+        this._startTextEdit(hit.id, 'text', { at: p })
         return
       }
       if (hit.type === 'geo') {
         this.setSelection([hit.id])
-        this._startTextEdit(hit.id, 'label')
+        this._startTextEdit(hit.id, 'label', { at: p })
         return
       }
       if (hit.type === 'image') {
@@ -2873,6 +2933,7 @@ export class Editor {
     c.removeEventListener('paste', this._onPaste)
     c.removeEventListener('contextmenu', this._onContextMenu)
     c.removeEventListener('blur', this._onBlur)
+    c.removeEventListener('scroll', this._onScroll)
     document.fonts?.removeEventListener?.('loadingdone', this._onFonts)
     this._clearPressTimer()
     this.canvas.remove()

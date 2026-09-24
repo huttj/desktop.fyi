@@ -8,7 +8,11 @@
   position: relative;
   width: 100%;
   height: 100%;
+  /* clip, not hidden: a hidden box still scrolls when a caret (a rotated
+     text surface's, say) wanders past its edge, and that would shift the
+     whole board under the text; clip can't scroll at all */
   overflow: hidden;
+  overflow: clip;
   outline: none;
   background: #fbf9f4;
   touch-action: none;
@@ -543,23 +547,27 @@
 }
 
 /* ---- text editing ---- */
+/* a contenteditable styled to match the canvas, so formatting shows as you type */
 .qd-text-edit {
   position: absolute;
   z-index: 30;
+  box-sizing: content-box;
   background: transparent;
   border: none;
   outline: 1.5px dashed rgba(110, 140, 200, 0.55);
   outline-offset: 3px;
   border-radius: 2px;
-  resize: none;
-  overflow: hidden;
+  overflow: visible;
   padding: 0;
   margin: 0;
   white-space: pre-wrap;
+  overflow-wrap: break-word;
   caret-color: currentColor;
   -webkit-user-select: text;
   user-select: text;
+  cursor: text;
 }
+.qd-text-edit:focus { outline-color: rgba(110, 140, 200, 0.75); }
 /* keyboard help overlay (press ?) */
 .qd-help-backdrop {
   position: absolute; inset: 0; z-index: 50;

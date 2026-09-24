@@ -366,6 +366,32 @@ function textBlock(shape) {
   return null
 }
 
+// What's under a shape-local point in the text: `offset`, the caret a
+// click there would land at (the nearest character boundary), and `index`,
+// the character the point is actually over (-1 past the line's end). Null
+// when the shape has no text block.
+export function textHitAt(shape, lx, ly) {
+  const tb = textBlock(shape)
+  if (!tb || !tb.lines.length) return null
+  const x = lx / tb.scale, y = ly / tb.scale
+  const li = Math.max(0, Math.min(tb.lines.length - 1, Math.floor((y - tb.top) / tb.lh)))
+  const line = tb.lines[li]
+  const ctx = measurer()
+  let acc = tb.left(line)
+  let pos = line.start
+  for (const r of lineRuns(tb.text, line, tb.marks, tb.fontSize, tb.font)) {
+    ctx.font = runFont(r.st, tb.fontSize, tb.font)
+    for (const ch of r.str) {
+      const w = ctx.measureText(ch).width
+      if (x < acc + w) return { offset: x < acc + w / 2 ? pos : pos + ch.length, index: x >= acc ? pos : -1 }
+      acc += w
+      pos += ch.length
+    }
+  }
+  return { offset: line.start + line.text.length, index: -1 }
+}
+export const textOffsetAt = (shape, lx, ly) => textHitAt(shape, lx, ly)?.offset ?? null
+
 // the link under a shape-local point, or null
 export function textLinkAt(shape, lx, ly) {
   const tb = textBlock(shape)

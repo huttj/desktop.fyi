@@ -178,10 +178,43 @@ export function hasMark(marks: TextMark[] | undefined, from: number, to: number,
 export function setMark(marks: TextMark[] | undefined, from: number, to: number, key: keyof TextMark, on: boolean, value?: boolean | string): TextMark[]
 /** Sorted, non-overlapping runs with adjacent equal ones merged. */
 export function normalizeMarks(marks: TextMark[] | undefined): TextMark[]
+/** What's under a shape-local point in a text block: the nearest caret `offset` and the character `index` the point is over (-1 past the end). */
+export function textHitAt(shape: ShapeRecord, lx: number, ly: number): { offset: number; index: number } | null
+/** The caret offset a click at a shape-local point lands at, or null. */
+export function textOffsetAt(shape: ShapeRecord, lx: number, ly: number): number | null
 /** The link under a shape-local point on a text, note, or geo label, or null. */
 export function textLinkAt(shape: ShapeRecord, lx: number, ly: number): string | null
 /** The link badge a shape with `props.url` wears (local centre and radius), or null. */
 export function urlBadgeAt(shape: ShapeRecord): { x: number; y: number; r: number } | null
+/**
+ * The text surface: a contenteditable that shows marks as they're applied,
+ * wearing a textarea's API. The editor mounts one while text is edited
+ * (`editor.editing.textarea`); custom UIs can drive it the same way.
+ */
+export class TextSurface {
+  constructor(opts?: { hlColor?: string })
+  readonly el: HTMLDivElement
+  value: string
+  readonly marks: TextMark[]
+  readonly selectionStart: number
+  readonly selectionEnd: number
+  readonly style: CSSStyleDeclaration
+  /** Draw text and marks into the DOM (keeping the selection, or setting `sel`). */
+  render(text: string, marks: TextMark[] | undefined, sel?: [number, number]): void
+  /** Text and marks read back from the DOM as it is now. */
+  read(): { text: string; marks: TextMark[] }
+  setSelectionRange(start: number, end?: number): void
+  select(): void
+  focus(): void
+  remove(): void
+  /** Replace the selection with text, the marks around it carrying on. */
+  insertText(text: string): void
+  addEventListener(type: string, fn: (e: Event) => void, opts?: any): void
+  removeEventListener(type: string, fn: (e: Event) => void, opts?: any): void
+  dispatchEvent(e: Event): boolean
+  getBoundingClientRect(): DOMRect
+}
+
 /** Text as the board keeps it: Unix newlines, tabs as four spaces. */
 export function normalizeText(text: string): string
 /** Follow a link from the board: a new tab, http(s) and mailto only. */
