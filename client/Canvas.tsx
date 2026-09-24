@@ -88,7 +88,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
 
   useEffect(() => {
     if (!notice) return
-    const t = setTimeout(() => setNotice(null), 3200)
+    const t = setTimeout(() => setNotice(null), notice.length > 40 ? 6000 : 3200)
     return () => clearTimeout(t)
   }, [notice])
 
@@ -232,6 +232,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       // A tap on a link follows it, whatever the tool: the hand tool never would, and a
       // finger wobbles past Quickdraw's own click threshold on the select tool.
       installLinkTaps(ed)
+      installPasteReporting(ed, setNotice)
 
       if (!me) {
         ed.setTool('hand')
@@ -424,4 +425,48 @@ function installLinkTaps(ed: Editor) {
     const link = (ed as unknown as { _linkAt(shape: unknown, p: { x: number; y: number }): string | null })._linkAt(hit, p)
     if (link) openUrl(link)
   })
+}
+
+/**
+ * The menu's Paste, with its failures said out loud. Quickdraw swallows every
+ * clipboard error, which on a phone hides the whole story: iOS only hands the
+ * clipboard over after its own "Paste" bubble is tapped, and some copies carry
+ * types nothing here can place.
+ */
+function installPasteReporting(ed: Editor, notify: (message: string) => void) {
+  type Internals = { _pasteHtml(html: string): Promise<boolean>; _pasteText(text: string): Promise<boolean> }
+  const internals = ed as unknown as Internals
+  const imagesOnBoard = () => ed.store.shapes().filter((s) => s.type === 'image').length
+  ed.pasteFromClipboard = async () => {
+    const cb = navigator.clipboard
+    if (!cb || (!cb.read && !cb.readText)) return notify('This browser cannot read the clipboard')
+    try {
+      if (cb.read) {
+        const items = await cb.read()
+        const types = items.flatMap((i) => i.types)
+        for (const it of items) {
+          const t = it.types.find((t2) => t2.startsWith('image/'))
+          if (!t) continue
+          const before = imagesOnBoard()
+          const blob = await it.getType(t)
+          await ed.importImageBlobs([blob])
+          if (imagesOnBoard() === before) notify(`Could not read that image (${t}, ${Math.round(blob.size / 1024)} KB)`)
+          return
+        }
+        for (const it of items) {
+          if (!it.types.includes('text/html')) continue
+          if (await internals._pasteHtml(await (await it.getType('text/html')).text())) return
+        }
+        for (const it of items) {
+          if (!it.types.includes('text/plain')) continue
+          if (await internals._pasteText(await (await it.getType('text/plain')).text())) return
+        }
+        return notify(types.length ? `Nothing here can be pasted (${types.join(', ')})` : 'The clipboard is empty')
+      }
+      if (!(await internals._pasteText(await cb.readText()))) notify('The clipboard is empty')
+    } catch (e) {
+      const err = e as { name?: string; message?: string }
+      notify(`Paste failed: ${[err?.name, err?.message ?? String(e)].filter(Boolean).join(': ')}`)
+    }
+  }
 }
