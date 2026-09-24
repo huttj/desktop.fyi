@@ -158,7 +158,9 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
     [initialView, store]
   )
 
+  const missing = profile === 'missing'
   useEffect(() => {
+    if (missing) return
     const sync = new BoardSync(store, socketUrl(handle), {
       canEdit: !!me,
       layer: () => layerRef.current(),
@@ -185,7 +187,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       sync.close()
       syncRef.current = null
     }
-  }, [store, me, handle, frame, lookup])
+  }, [store, me, handle, frame, lookup, missing])
 
   const onMount = useCallback(
     (ed: Editor) => {
@@ -233,7 +235,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
         onContextMenuCapture: stop,
       }
 
-  if (profile === 'missing') {
+  if (missing) {
     return (
       <div className="Screen">
         <div className="Card">

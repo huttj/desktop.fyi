@@ -306,6 +306,16 @@ const router = AutoRouter<IRequest, Args>({
 
   .all('/api/*', () => error(404, 'Not found'))
 
+  // ---- app shell for desktop addresses ----
+  // "/@handle" never reaches the asset router (it would 307 to "/%40handle"):
+  // hand back the SPA entry and let the client route it.
+  .get('/@:handle', (request, env) => {
+    if (!HANDLE_RE.test(request.params.handle.toLowerCase())) return undefined // not a desktop: fall through
+    return env.ASSETS.fetch(new URL('/', request.url).toString(), { headers: request.headers })
+  })
+  // Anything else that reached the worker (in dev, Vite's own "/@vite/..." module URLs) goes back to the assets.
+  .all('*', (request, env) => env.ASSETS.fetch(request.url, { headers: request.headers }))
+
 export default {
   fetch: router.fetch,
 } satisfies ExportedHandler<Env>

@@ -746,7 +746,7 @@ img.Avatar {
   margin: 20px 0 16px;
 }
 
-.Card a {
+.Card a:not(.Button) {
   color: var(--fg);
 }
 

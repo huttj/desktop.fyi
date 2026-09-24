@@ -38,7 +38,7 @@ export function App() {
 
   const updateMe = useCallback((me: Me) => setAuth({ status: 'signed-in', me }), [])
 
-  const path = window.location.pathname
+  const path = decodeURIComponent(window.location.pathname)
   const boardHandle = HANDLE_PATH.exec(path)?.[1]?.toLowerCase() ?? null
 
   if (auth.status === 'loading') return <Splash />

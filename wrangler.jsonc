@@ -14,8 +14,11 @@
   "observability": { "enabled": true },
   "assets": {
     "directory": "./dist/client",
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    // Desktop addresses start with "@", which the asset router would redirect
+    // to "%40"; the worker serves the app shell for them itself.
+    "run_worker_first": ["/api/*", "/@*"]
   },
   "vars": {
     "ADMIN_EMAILS": "joshua@hu.tt",
