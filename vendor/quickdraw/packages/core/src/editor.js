@@ -1225,7 +1225,7 @@ export class Editor {
     this.store.put({
       id, typeName: 'shape', type: 'note', x: p.x - NOTE_W / 2, y: p.y - NOTE_W / 2, rot: 0,
       z: this.store.maxZ() + 1,
-      props: { text: '', color: this.styles.color === DEFAULT_STYLES.color ? 'yellow' : this.styles.color, size: 'm', font: this.styles.font, scale: 1 },
+      props: { text: '', color: this.styles.color === DEFAULT_STYLES.color || this.styles.color === 'black' ? 'yellow' : this.styles.color, size: 'm', font: this.styles.font, scale: 1 },
     })
     this.setTool('select')
     this.setSelection([id])

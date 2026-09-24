@@ -468,10 +468,17 @@ export class Editor {
   destroy(): void
 }
 
+/**
+ * When the action bar (undo, redo, duplicate, delete) shows: 'touch' only
+ * where the primary input is touch (the default — with a mouse and keyboard
+ * every action is a key away), 'always', or 'never'.
+ */
+export type ActionBarMode = 'touch' | 'always' | 'never'
+
 export interface BoardUI {
   setHidden(hidden: boolean): void
   /** Live-toggle the board menu's theme / grid switches. */
-  setOptions(opts: { themeToggle?: boolean; gridControl?: boolean; minimap?: boolean }): void
+  setOptions(opts: { themeToggle?: boolean; gridControl?: boolean; minimap?: boolean; actions?: ActionBarMode }): void
   destroy(): void
 }
 
@@ -485,6 +492,8 @@ export interface BuildUIOptions {
   gridControl?: boolean
   /** Show the minimap in the top-right corner (default true; hidden on narrow boards regardless). */
   minimap?: boolean
+  /** When the action bar shows (default 'touch'). */
+  actions?: ActionBarMode
 }
 
 /** Build the floating toolbar / style popovers / board menu for an editor. */
@@ -510,6 +519,8 @@ export interface CreateQuickdrawOptions extends EditorOptions {
   gridControl?: boolean
   /** Show the minimap (default true). */
   minimap?: boolean
+  /** When the action bar shows (default 'touch'). */
+  actions?: ActionBarMode
   /**
    * Show the small "Quickdraw" mark in the board's corner (default true).
    * Keeping it is a free way to support the project.

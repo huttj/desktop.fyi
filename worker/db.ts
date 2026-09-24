@@ -11,12 +11,13 @@ export interface UserRow {
   handle: string | null
   name: string | null
   avatar: string | null
+  bio: string | null
   created_at: number
   last_login_at: number | null
 }
 
 export function toPerson(u: UserRow): Person {
-  return { id: u.id, handle: u.handle, name: u.name, avatar: u.avatar }
+  return { id: u.id, handle: u.handle, name: u.name, avatar: u.avatar, bio: u.bio }
 }
 
 export function toSummary(u: UserRow, isAdmin: boolean): UserSummary {
@@ -76,7 +77,7 @@ export class Db {
   async ensureUser(email: string): Promise<UserRow> {
     const existing = await this.userByEmail(email)
     if (existing) return existing
-    const row: UserRow = { id: randomId(), email, handle: null, name: null, avatar: null, created_at: Date.now(), last_login_at: null }
+    const row: UserRow = { id: randomId(), email, handle: null, name: null, avatar: null, bio: null, created_at: Date.now(), last_login_at: null }
     await this.d1
       .prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)')
       .bind(row.id, row.email, row.created_at)
@@ -85,11 +86,12 @@ export class Db {
   }
 
   /** Returns false when the handle is taken. */
-  async updateProfile(id: string, patch: { name?: string; handle?: string }): Promise<boolean> {
+  async updateProfile(id: string, patch: { name?: string; handle?: string; bio?: string | null }): Promise<boolean> {
     const sets: string[] = []
     const args: unknown[] = []
     if (patch.name !== undefined) { sets.push('name = ?'); args.push(patch.name) }
     if (patch.handle !== undefined) { sets.push('handle = ?'); args.push(patch.handle) }
+    if (patch.bio !== undefined) { sets.push('bio = ?'); args.push(patch.bio) }
     if (!sets.length) return true
     try {
       await this.d1.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).bind(...args, id).run()
@@ -102,6 +104,17 @@ export class Db {
 
   setAvatar(id: string, avatar: string | null) {
     return this.d1.prepare('UPDATE users SET avatar = ? WHERE id = ?').bind(avatar, id).run()
+  }
+
+  /** People by handle prefix or a word of their name. Only those who finished signing up. */
+  async searchUsers(q: string, limit = 12): Promise<UserRow[]> {
+    const term = q.trim().toLowerCase().replace(/^@/, '').replace(/[%_]/g, '')
+    if (!term) return []
+    const { results } = await this.d1
+      .prepare('SELECT * FROM users WHERE handle IS NOT NULL AND (handle LIKE ? OR lower(name) LIKE ?) ORDER BY handle LIMIT ?')
+      .bind(`${term}%`, `%${term}%`, limit)
+      .all<UserRow>()
+    return results
   }
 
   async listUsers(): Promise<UserRow[]> {

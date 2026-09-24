@@ -109,7 +109,14 @@
 }
 
 /* history + selection actions: a vertical pill hugging the left edge.
-   Hosts with their own chrome there can move it via the custom props. */
+   Hosts with their own chrome there can move it via the custom props.
+   It's for fingers: with a mouse and keyboard every one of these is a key
+   away, so it only shows where the primary input is touch — unless the
+   host asks for it always (or never) via the `actions` option. */
+@media (hover: hover) and (pointer: fine) {
+  .qd-ui[data-qd-actions='touch'] .qd-actions { display: none; }
+}
+.qd-ui[data-qd-actions='never'] .qd-actions { display: none; }
 .qd-actions {
   position: absolute;
   left: var(--qd-actions-left, 10px);

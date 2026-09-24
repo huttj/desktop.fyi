@@ -49,7 +49,7 @@ const requireAdmin: RequestHandler<IRequest, Args> = async (request, env, ctx) =
 }
 
 function toMe(env: Env, u: UserRow): Me {
-  return { id: u.id, email: u.email, handle: u.handle, name: u.name, avatar: u.avatar, isAdmin: isAdminEmail(env, u.email) }
+  return { id: u.id, email: u.email, handle: u.handle, name: u.name, avatar: u.avatar, bio: u.bio, isAdmin: isAdminEmail(env, u.email) }
 }
 
 async function resolveHandle(env: Env, raw: string): Promise<UserRow | null> {
@@ -123,14 +123,20 @@ const router = AutoRouter<IRequest, Args>({
 
   .post('/api/me', requireAuth, async (request, env) => {
     const user = (request as AuthedRequest).user
-    const body = await readJson<{ name: string; handle: string }>(request)
-    const patch: { name?: string; handle?: string } = {}
+    const body = await readJson<{ name: string; handle: string; bio: string | null }>(request)
+    const patch: { name?: string; handle?: string; bio?: string | null } = {}
     if (body.name !== undefined) {
       const name = body.name.trim().replace(/\s+/g, ' ').slice(0, 40)
       if (name.length < 1) return error(400, 'Name is required')
       patch.name = name
     }
+    if (body.bio !== undefined) {
+      const bio = (body.bio ?? '').trim().replace(/\s+/g, ' ').slice(0, 160)
+      patch.bio = bio || null
+    }
     if (body.handle !== undefined) {
+      // A handle is chosen once: it is the desktop's address.
+      if (user.handle && body.handle.trim().toLowerCase() !== user.handle) return error(400, 'Handles cannot be changed')
       const handle = body.handle.trim().toLowerCase()
       if (!HANDLE_RE.test(handle)) return error(400, 'Handles are 2 to 20 letters, digits or underscores')
       if (RESERVED_HANDLES.has(handle)) return error(400, 'That handle is reserved')
@@ -178,6 +184,12 @@ const router = AutoRouter<IRequest, Args>({
     const raw = typeof request.query.ids === 'string' ? request.query.ids : ''
     const ids = raw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 100)
     const people: Person[] = (await db(env).usersByIds(ids)).map(toPerson)
+    return json(people)
+  })
+
+  .get('/api/users/search', requireAuth, async (request, env) => {
+    const q = typeof request.query.q === 'string' ? request.query.q.slice(0, 40) : ''
+    const people: Person[] = (await db(env).searchUsers(q)).map(toPerson)
     return json(people)
   })
 

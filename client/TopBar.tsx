@@ -4,7 +4,6 @@ import type { Peer } from '../shared/protocol'
 import type { Me } from '../shared/types'
 import { Avatar } from './Avatar'
 import { nameOf, type People } from './people'
-import { PhotoDialog } from './PhotoDialog'
 import type { SyncStatus } from './sync'
 import { viewLink } from './viewLink'
 
@@ -14,27 +13,28 @@ const STATUS_LABEL: Record<SyncStatus, string> = {
   offline: 'Offline. Reconnecting…',
 }
 
-/** Top-right chrome: who is here, copy-a-link-to-this-view, account menu. */
+/** Top-right chrome: who else is here, the feed, copy-a-link-to-this-view, and you (photo and name open the menu). */
 export function TopBar({
   me,
-  onMeChange,
   onSignOut,
   editor,
   status,
   peers,
   people,
+  feedOpen,
+  onFeed,
 }: {
   me: Me | null
-  onMeChange?: (me: Me) => void
   onSignOut: () => void
   editor: Editor | null
   status: SyncStatus
   peers: Peer[]
   people: People
+  feedOpen: boolean
+  onFeed: (open: boolean) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [photoOpen, setPhotoOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -68,19 +68,26 @@ export function TopBar({
 
   return (
     <div className="TopBar" onPointerDown={(e) => e.stopPropagation()}>
-      <div className="TopBar-people" title={`${STATUS_LABEL[status]}${whoIsHere ? ` · ${whoIsHere}` : ''}`}>
-        {me ? (
-          <button type="button" className={`AvatarButton TopBar-status--${status}`} onClick={() => setPhotoOpen(true)} title="Change your photo">
-            <Avatar id={me.id} name={me.name ?? '?'} avatar={me.avatar} className="Avatar--me" />
-          </button>
-        ) : (
-          <span className={`TopBar-status TopBar-status--${status}`} />
-        )}
-        {others.slice(0, 5).map((id) => (
-          <Avatar key={id} id={id} name={nameOf(people, id)} avatar={people.get(id)?.avatar ?? null} />
-        ))}
-        {others.length > 5 && <span className="Avatar Avatar--more">+{others.length - 5}</span>}
-      </div>
+      {others.length > 0 && (
+        <div className="TopBar-people" title={whoIsHere}>
+          {others.slice(0, 5).map((id) => (
+            <Avatar key={id} id={id} name={nameOf(people, id)} avatar={people.get(id)?.avatar ?? null} />
+          ))}
+          {others.length > 5 && <span className="Avatar Avatar--more">+{others.length - 5}</span>}
+        </div>
+      )}
+      {me && (
+        <button
+          type="button"
+          className={`TopBar-button TopBar-button--icon${feedOpen ? ' TopBar-button--on' : ''}`}
+          onClick={() => onFeed(!feedOpen)}
+          title={feedOpen ? 'Close the feed' : 'Feed: what people you follow made, and what is vanishing'}
+          aria-label="Feed"
+          aria-pressed={feedOpen}
+        >
+          <FeedIcon />
+        </button>
+      )}
       <button
         type="button"
         className={`TopBar-button TopBar-button--icon${copied ? ' TopBar-button--done' : ''}`}
@@ -93,19 +100,33 @@ export function TopBar({
       </button>
       {me ? (
         <div className="TopBar-menu" ref={menuRef}>
-          <button type="button" className="TopBar-button TopBar-button--quiet" onClick={() => setMenuOpen((o) => !o)} aria-expanded={menuOpen}>
-            {me.name}
+          <button
+            type="button"
+            className={`TopBar-button TopBar-me TopBar-status--${status}`}
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-expanded={menuOpen}
+            title={STATUS_LABEL[status]}
+          >
+            <Avatar id={me.id} name={me.name ?? '?'} avatar={me.avatar} className="Avatar--me" />
+            <span>{me.name}</span>
           </button>
           {menuOpen && (
             <div className="TopBar-dropdown">
               <a className="TopBar-item" href={`/@${me.handle}`}>
                 My desktop
               </a>
-              <a className="TopBar-item" href="/feed">
+              <button
+                type="button"
+                className="TopBar-item"
+                onClick={() => {
+                  onFeed(true)
+                  setMenuOpen(false)
+                }}
+              >
                 Feed
-              </a>
-              <a className="TopBar-item" href="/settings">
-                Settings
+              </button>
+              <a className="TopBar-item" href="/profile">
+                Profile
               </a>
               {me.isAdmin && (
                 <a className="TopBar-item" href="/admin">
@@ -119,11 +140,13 @@ export function TopBar({
           )}
         </div>
       ) : (
-        <a className="TopBar-button TopBar-button--primary" href="/login">
-          Sign in to add
-        </a>
+        <>
+          <span className={`TopBar-status TopBar-status--${status}`} title={STATUS_LABEL[status]} />
+          <a className="TopBar-button TopBar-button--primary" href="/login">
+            Sign in to add
+          </a>
+        </>
       )}
-      {photoOpen && me && onMeChange && <PhotoDialog me={me} onChange={onMeChange} onClose={() => setPhotoOpen(false)} />}
     </div>
   )
 }
@@ -141,6 +164,16 @@ function CheckIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
+}
+
+function FeedIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 11a9 9 0 0 1 9 9" />
+      <path d="M4 4a16 16 0 0 1 16 16" />
+      <circle cx="5" cy="19" r="1" />
     </svg>
   )
 }

@@ -513,9 +513,13 @@ img.Avatar {
 }
 
 .TopBar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font: inherit;
   font-size: 12px;
   font-weight: 500;
+  line-height: 1;
   padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid var(--panel-line);
@@ -769,6 +773,9 @@ img.Avatar {
   display: flex;
   align-items: center;
   gap: 8px;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
   padding: 3px 10px 3px 4px;
   border-radius: 999px;
   background: var(--panel);
@@ -785,9 +792,14 @@ img.Avatar {
   margin-left: 0;
 }
 
-.BoardHeader-owner .TopBar-button {
-  margin-left: 4px;
-  box-shadow: none;
+
+.BoardHeader-owner:hover {
+  background: var(--panel-hover);
+}
+
+.BoardHeader-owner > svg {
+  color: var(--panel-muted);
+  flex: none;
 }
 
 .BoardHeader-name {
@@ -847,8 +859,8 @@ img.Avatar {
 }
 
 .TopBar-button svg {
-  vertical-align: -2px;
-  margin-right: 2px;
+  display: block;
+  flex: none;
 }
 
 .Notice {
@@ -965,4 +977,221 @@ img.Avatar {
 /* Quickdraw's minimap lives top-right too: sit it under the account bar. */
 .CanvasRoot .qd-minimap {
   top: 58px;
+}
+
+/* you, top-right: photo and name are one button; the ring around the photo is the connection light */
+
+.TopBar-me {
+  padding: 2px 10px 2px 2px;
+}
+
+.TopBar-me .Avatar {
+  margin-left: 0;
+}
+
+.TopBar-button--on {
+  background: var(--panel-fg);
+  color: var(--panel);
+}
+
+/* people picker */
+
+.PeoplePicker {
+  min-width: 280px;
+  max-width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  overflow: auto;
+}
+
+.PeoplePicker-owner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 8px 12px;
+  border-bottom: 1px solid var(--panel-line);
+  margin-bottom: 6px;
+}
+
+.PeoplePicker-owner .TopBar-button {
+  align-self: flex-start;
+  box-shadow: none;
+}
+
+.PeoplePicker-ownerRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.PeoplePicker-bio {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--panel-fg);
+}
+
+.PeoplePicker .Input--small {
+  font-size: 13px;
+  padding: 7px 10px;
+  margin: 2px 4px 6px;
+  width: calc(100% - 8px);
+  background: var(--panel-hover);
+  border-color: transparent;
+  color: var(--panel-fg);
+}
+
+.PeoplePicker .Input--small:focus {
+  border-color: var(--panel-line);
+}
+
+.PeoplePicker-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.PeoplePicker-heading {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--panel-muted);
+}
+
+.PeoplePicker-empty {
+  padding: 8px 10px;
+  margin: 0;
+}
+
+.Person {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--panel-fg);
+  cursor: pointer;
+}
+
+.Person:hover {
+  background: var(--panel-hover);
+}
+
+.Person .Avatar--small {
+  margin: 0;
+}
+
+.Person-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.Person-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.Person-handle {
+  font-size: 11px;
+  color: var(--panel-muted);
+}
+
+/* profile form */
+
+.Field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.Field-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.Input--area {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.4;
+}
+
+/* feed panel */
+
+.FeedPanel {
+  position: absolute;
+  top: 52px;
+  right: 8px;
+  bottom: 8px;
+  width: min(380px, calc(100vw - 16px));
+  z-index: 44;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--panel-fg);
+  border: 1px solid var(--panel-line);
+  box-shadow: var(--panel-shadow-strong);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  pointer-events: all;
+}
+
+.FeedPanel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px 8px 16px;
+  font-size: 14px;
+}
+
+.FeedPanel-body {
+  overflow: auto;
+  padding: 0 12px 12px;
+}
+
+.FeedPanel .FeedSection {
+  margin-top: 8px;
+}
+
+.FeedPanel .FeedSection-title {
+  color: var(--panel-muted);
+}
+
+.FeedPanel .FeedGrid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.FeedPanel .FeedCard {
+  background: var(--panel-hover);
+  border-color: transparent;
+  color: var(--panel-fg);
+  padding: 8px;
+}
+
+.FeedPanel .FeedCard-thumb {
+  height: 96px;
+  background: var(--panel);
+}
+
+.FeedPanel .Muted {
+  color: var(--panel-muted);
+}
+
+.CanvasRoot .qd-minimap {
+  transition: opacity 120ms ease;
+}
+
+.CanvasRoot:has(.FeedPanel) .qd-minimap {
+  opacity: 0;
+  pointer-events: none;
 }

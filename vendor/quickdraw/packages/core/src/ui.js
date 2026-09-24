@@ -129,13 +129,17 @@ const DROP_KINDS = new Set(['line', 'arrow', 'geo', 'text', 'note', ...GEO_IDS])
 // what gives way first as the frame narrows (select and draw never yield)
 const DROP_ORDER = ['hand', 'laser', 'line', 'note', 'image', 'highlight', 'text', 'arrow', 'eraser', 'geo']
 
-export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gridControl = true, minimap = true } = {}) {
+export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gridControl = true, minimap = true, actions = 'touch' } = {}) {
   const root = editor.container
   // menu switches the host can drop — an app that owns its own theme chrome
   // doesn't want a second control for it on the canvas
-  const opts = { themeToggle: themeToggle !== false, gridControl: gridControl !== false, minimap: minimap !== false }
+  const opts = { themeToggle: themeToggle !== false, gridControl: gridControl !== false, minimap: minimap !== false, actions }
   const ui = el('div', 'qd-ui')
   root.appendChild(ui)
+  // the action bar (undo, redo, duplicate, delete): 'touch' shows it only
+  // where the primary input is touch, 'always' / 'never' say so
+  const setActions = (mode) => { opts.actions = ['always', 'never'].includes(mode) ? mode : 'touch'; ui.dataset.qdActions = opts.actions }
+  setActions(actions)
 
   let popover = null // { name, el }
   // the context menu's Esc listener lives on the document while it's open
@@ -951,6 +955,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       if ('themeToggle' in next) opts.themeToggle = next.themeToggle !== false
       if ('gridControl' in next) opts.gridControl = next.gridControl !== false
       if ('minimap' in next) { opts.minimap = next.minimap !== false; layoutMinimap() }
+      if ('actions' in next) setActions(next.actions)
       if (popover?.name === 'menu') closePopover()
     },
     destroy() {

@@ -8,11 +8,10 @@ import { nameOf, relativeTime, type People } from './people'
 import { renderThumb } from './thumb'
 import { itemLink } from './viewLink'
 
-/** What the people you follow have made lately, and what is about to disappear. */
-export function Feed({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
+/** A panel beside the desktop: what the people you follow made lately, and what is about to disappear. */
+export function FeedPanel({ me, theme, onClose }: { me: Me; theme: 'light' | 'dark'; onClose: () => void }) {
   const [feed, setFeed] = useState<FeedData | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
 
   useEffect(() => {
     api
@@ -21,22 +20,24 @@ export function Feed({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load the feed'))
   }, [])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   const people: People = new Map((feed?.people ?? []).map((p) => [p.id, p]))
   people.set(me.id, { id: me.id, handle: me.handle, name: me.name, avatar: me.avatar })
 
   return (
-    <div className="Screen Screen--top">
-      <div className="Card Card--wide Card--feed">
-        <header className="AdminHeader">
-          <h1 className="Wordmark">feed</h1>
-          <nav className="AdminNav">
-            <a href={`/@${me.handle}`}>My desktop</a>
-            <a href="/settings">Settings</a>
-            <button className="Link" onClick={onSignOut}>
-              Sign out
-            </button>
-          </nav>
-        </header>
+    <aside className="FeedPanel" onPointerDown={(e) => e.stopPropagation()}>
+      <header className="FeedPanel-header">
+        <strong>Feed</strong>
+        <button type="button" className="TopBar-button TopBar-button--icon TopBar-button--quiet" onClick={onClose} aria-label="Close the feed" title="Close">
+          <CloseIcon />
+        </button>
+      </header>
+      <div className="FeedPanel-body">
         {error && <p className="Error">{error}</p>}
         {!feed && !error && <p className="Muted">Loading…</p>}
         {feed && (
@@ -48,7 +49,7 @@ export function Feed({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
               ) : (
                 <div className="FeedGrid">
                   {feed.vanishing.map((item) => (
-                    <FeedCard key={`v:${item.boardId}:${item.id}`} item={item} people={people} meId={me.id} dark={dark} showAge />
+                    <FeedCard key={`v:${item.boardId}:${item.id}`} item={item} people={people} meId={me.id} theme={theme} showAge />
                   ))}
                 </div>
               )}
@@ -56,11 +57,11 @@ export function Feed({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
             <section className="FeedSection">
               <h2 className="FeedSection-title">New from people you follow</h2>
               {feed.recent.length === 0 ? (
-                <p className="Muted">Quiet this week. Follow people from their desktops to see what they make here.</p>
+                <p className="Muted">Quiet this week. Find people to follow from the name at the top left.</p>
               ) : (
                 <div className="FeedGrid">
                   {feed.recent.map((item) => (
-                    <FeedCard key={`r:${item.boardId}:${item.id}`} item={item} people={people} meId={me.id} dark={dark} />
+                    <FeedCard key={`r:${item.boardId}:${item.id}`} item={item} people={people} meId={me.id} theme={theme} />
                   ))}
                 </div>
               )}
@@ -68,11 +69,11 @@ export function Feed({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
           </>
         )}
       </div>
-    </div>
+    </aside>
   )
 }
 
-function FeedCard({ item, people, meId, dark, showAge = false }: { item: FeedItem; people: People; meId: string; dark: boolean; showAge?: boolean }) {
+function FeedCard({ item, people, meId, theme, showAge = false }: { item: FeedItem; people: People; meId: string; theme: 'light' | 'dark'; showAge?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const record = item.record as ShapeRecord | undefined
   const asset = item.asset as AssetRecord | undefined
@@ -80,11 +81,11 @@ function FeedCard({ item, people, meId, dark, showAge = false }: { item: FeedIte
   useEffect(() => {
     if (!canvas.current || !record) return
     try {
-      renderThumb(canvas.current, record, asset, dark ? 'dark' : 'light')
+      renderThumb(canvas.current, record, asset, theme)
     } catch (e) {
       console.warn('thumbnail failed', e)
     }
-  }, [record, asset, dark])
+  }, [record, asset, theme])
 
   const boardHandle = people.get(item.boardId)?.handle ?? null
   const href = boardHandle ? itemLink(boardHandle, item.id) : '#'
@@ -92,10 +93,8 @@ function FeedCard({ item, people, meId, dark, showAge = false }: { item: FeedIte
   const where = item.boardId === meId ? 'your desktop' : `${nameOf(people, item.boardId, meId)}'s desktop`
 
   return (
-    <a className={`FeedCard FeedCard--${item.age >= 1 ? 'fading' : 'fresh'}`} href={href} style={{ opacity: showAge ? Math.max(0.35, 1 - (item.age - 1) / 3) : 1 }}>
-      <div className="FeedCard-thumb">
-        {record ? <canvas ref={canvas} /> : <span className="Muted">a big drawing</span>}
-      </div>
+    <a className="FeedCard" href={href} style={{ opacity: showAge ? Math.max(0.35, 1 - (item.age - 1) / 3) : 1 }}>
+      <div className="FeedCard-thumb">{record ? <canvas ref={canvas} /> : <span className="Muted">a big drawing</span>}</div>
       <div className="FeedCard-meta">
         <Avatar id={item.meta.by} name={nameOf(people, item.meta.by)} avatar={people.get(item.meta.by)?.avatar ?? null} className="Avatar--small" />
         <span>
@@ -106,5 +105,13 @@ function FeedCard({ item, people, meId, dark, showAge = false }: { item: FeedIte
       </div>
       {showAge && <div className="FeedCard-age">{describeAge(item.age)}</div>}
     </a>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
   )
 }

@@ -3,11 +3,10 @@ import type { Me } from '../shared/types'
 import { Admin } from './Admin'
 import { api, ApiError } from './api'
 import { Canvas } from './Canvas'
-import { Feed } from './Feed'
 import { Landing } from './Landing'
 import { Login } from './Login'
 import { NamePrompt } from './NamePrompt'
-import { Settings } from './Settings'
+import { Profile } from './Profile'
 
 type AuthState = { status: 'loading' } | { status: 'signed-out' } | { status: 'signed-in'; me: Me }
 
@@ -45,7 +44,7 @@ export function App() {
 
   if (auth.status === 'signed-out') {
     if (boardHandle) return <Canvas key={`viewer:${boardHandle}`} handle={boardHandle} me={null} onSignOut={signOut} />
-    if (path === '/login' || path === '/feed' || path === '/admin' || path === '/settings') return <Login />
+    if (path === '/login' || path === '/feed' || path === '/admin' || path === '/profile' || path === '/settings') return <Login />
     return <Landing />
   }
 
@@ -53,12 +52,11 @@ export function App() {
   // A first sign-in picks a name and a handle before anything else.
   if (!me.name || !me.handle) return <NamePrompt me={me} onDone={updateMe} />
 
-  if (boardHandle) return <Canvas key={`${me.id}:${boardHandle}`} handle={boardHandle} me={me} onMeChange={updateMe} onSignOut={signOut} />
-  if (path === '/feed') return <Feed me={me} onSignOut={signOut} />
-  if (path === '/settings') return <Settings me={me} onMeChange={updateMe} onSignOut={signOut} />
+  if (boardHandle) return <Canvas key={`${me.id}:${boardHandle}`} handle={boardHandle} me={me} onSignOut={signOut} />
+  if (path === '/profile' || path === '/settings') return <Profile me={me} onMeChange={updateMe} onSignOut={signOut} />
   if (path === '/admin') return <Admin me={me} onSignOut={signOut} />
-  // Home, /login and anything else: your own desktop.
-  window.location.replace(`/@${me.handle}`)
+  // The feed lives on your desktop as a panel; anything else is your desktop too.
+  window.location.replace(path === '/feed' ? `/@${me.handle}#feed` : `/@${me.handle}`)
   return <Splash />
 }
 

@@ -6,6 +6,7 @@ import { api } from './api'
 import { AttributionOverlay } from './AttributionOverlay'
 import { BoardHeader } from './BoardHeader'
 import { Cursors } from './Cursors'
+import { FeedPanel } from './FeedPanel'
 import { installFreshness, type FreshnessState, type LayerView } from './freshness'
 import { installLinkify } from './linkify'
 import type { People } from './people'
@@ -40,7 +41,7 @@ function socketUrl(handle: string) {
  * One desktop. `me` is null for anonymous viewers: they can look around but
  * the room refuses their edits. Signed-in visitors add to their own layer.
  */
-export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; me: Me | null; onMeChange?: (me: Me) => void; onSignOut: () => void }) {
+export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | null; onSignOut: () => void }) {
   const store = useQuickdrawStore()
   const editorRef = useRef<Editor | null>(null)
   const syncRef = useRef<BoardSync | null>(null)
@@ -58,11 +59,17 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   const [showHidden, setShowHiddenState] = useState(false)
   const [metaVersion, setMetaVersion] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
+  const [feedOpen, setFeedOpen] = useState(() => !!me && window.location.hash === '#feed')
 
   // The room's bookkeeping, read by the render hooks on every frame.
   const fresh = useRef<FreshnessState>({ metas: new Map<string, ItemMeta>(), viewerId: me?.id ?? null, view: 'all', showHidden: false })
 
   const initialView = useMemo(() => parseView(window.location.hash), [])
+
+  // Opening the feed from another page lands on "#feed"; the camera hash takes over from there.
+  useEffect(() => {
+    if (window.location.hash === '#feed') window.history.replaceState(null, '', window.location.pathname)
+  }, [])
   const framed = useRef(false)
 
   useEffect(() => {
@@ -255,6 +262,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
         store={store}
         theme={theme}
         grid={grid}
+        styles={{ color: 'black' }}
         hideUi={!me}
         watermark={false}
         onMount={onMount}
@@ -283,7 +291,8 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
         showHidden={showHidden}
         onShowHidden={setShowHidden}
       />
-      <TopBar me={me} onMeChange={onMeChange} onSignOut={onSignOut} editor={editor} status={status} peers={peers} people={people} />
+      <TopBar me={me} onSignOut={onSignOut} editor={editor} status={status} peers={peers} people={people} feedOpen={feedOpen} onFeed={setFeedOpen} />
+      {feedOpen && me && <FeedPanel me={me} theme={theme} onClose={() => setFeedOpen(false)} />}
       {notice && <div className="Notice">{notice}</div>}
     </div>
   )

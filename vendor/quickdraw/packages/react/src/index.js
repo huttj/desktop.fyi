@@ -18,7 +18,8 @@ export * from '@quickdrawjs/core'
  *   hideUi       hide the stock toolbar (bring your own chrome)
  *   themeToggle  show the theme switch in the board menu (default true)
  *   gridControl  show the grid switch in the board menu (default true)
- *   minimap      show the minimap in the bottom-left corner (default true)
+ *   minimap      show the minimap in the top-right corner (default true)
+ *   actions      when the undo/redo/duplicate/delete pill shows: 'touch' (default) | 'always' | 'never'
  *   watermark    show the corner "Quickdraw" mark (default true)
  *   store        external Store to render (share one across components/peers)
  *   snapshot     serialized document loaded on mount (ignored when `store` given)
@@ -44,6 +45,7 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
     themeToggle = true,
     gridControl = true,
     minimap = true,
+    actions = 'touch',
     watermark = true,
     store,
     snapshot,
@@ -88,6 +90,7 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
       themeToggle,
       gridControl,
       minimap,
+      actions,
       onSave: (blob, background) => {
         if (cbRef.current.onSave) return cbRef.current.onSave(blob, background)
         // default: download
@@ -170,8 +173,8 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
   }, [readonly, hideUi])
 
   useEffect(() => {
-    uiRef.current?.setOptions({ themeToggle, gridControl, minimap })
-  }, [themeToggle, gridControl, minimap])
+    uiRef.current?.setOptions({ themeToggle, gridControl, minimap, actions })
+  }, [themeToggle, gridControl, minimap, actions])
 
   useImperativeHandle(ref, () => ({
     get editor() { return editorRef.current },

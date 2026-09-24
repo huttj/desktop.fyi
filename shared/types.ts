@@ -5,6 +5,7 @@ export interface Me {
   name: string | null
   /** Upload URL of a small square photo, or null for initials. */
   avatar: string | null
+  bio: string | null
   isAdmin: boolean
 }
 
@@ -14,6 +15,7 @@ export interface Person {
   handle: string | null
   name: string | null
   avatar: string | null
+  bio?: string | null
 }
 
 export interface Profile extends Person {

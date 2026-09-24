@@ -28,7 +28,8 @@ const h = (handle: string) => encodeURIComponent(handle.replace(/^@/, ''))
 
 export const api = {
   me: () => call<Me>('/api/me'),
-  updateMe: (patch: { name?: string; handle?: string }) => call<Me>('/api/me', { method: 'POST', body: JSON.stringify(patch) }),
+  updateMe: (patch: { name?: string; handle?: string; bio?: string | null }) => call<Me>('/api/me', { method: 'POST', body: JSON.stringify(patch) }),
+  search: (q: string) => call<Person[]>(`/api/users/search?q=${encodeURIComponent(q)}`),
   requestLink: (email: string) => call<{ ok: true }>('/api/auth/request', { method: 'POST', body: JSON.stringify({ email }) }),
   logout: () => call<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
   setAvatar: (image: Blob) => call<Me>('/api/me/avatar', { method: 'POST', body: image, headers: { 'content-type': image.type } }),
