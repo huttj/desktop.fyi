@@ -1,0 +1,126 @@
+/* The board's type, self-hosted: the same faces tldraw uses, so boards look
+   the same here and there. Optional — import it next to quickdraw.css; the
+   font stacks fall back to system faces without it.
+
+   Shantell Sans (Informal) — © The Shantell Sans Project Authors
+   IBM Plex Sans / Serif / Mono — © IBM Corp.
+   All under the SIL Open Font License 1.1; see ../fonts/LICENSE-*.txt.
+
+   The regular cuts carry the 400–500 range: the board draws text at weight
+   500, and this keeps the browser from faking a heavier face. */
+
+@font-face {
+  font-family: 'Shantell Sans';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('../fonts/Shantell_Sans-Informal_Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Shantell Sans';
+  font-style: italic;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('../fonts/Shantell_Sans-Informal_Regular_Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Shantell Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/Shantell_Sans-Informal_Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Shantell Sans';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/Shantell_Sans-Informal_Bold_Italic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('../fonts/IBMPlexSans-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: italic;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('../fonts/IBMPlexSans-MediumItalic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/IBMPlexSans-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/IBMPlexSans-BoldItalic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Serif';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('../fonts/IBMPlexSerif-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Serif';
+  font-style: italic;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('../fonts/IBMPlexSerif-MediumItalic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Serif';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/IBMPlexSerif-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Serif';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/IBMPlexSerif-BoldItalic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('../fonts/IBMPlexMono-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: italic;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('../fonts/IBMPlexMono-MediumItalic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/IBMPlexMono-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/IBMPlexMono-BoldItalic.woff2') format('woff2');
+}

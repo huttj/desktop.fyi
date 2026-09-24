@@ -1,0 +1,963 @@
+@import '@quickdrawjs/core/quickdraw.css';
+
+:root {
+  --bg: #f6f5f2;
+  --fg: #171614;
+  --muted: #7a776f;
+  --line: #e2dfd8;
+  --card: #ffffff;
+  --accent: #171614;
+  --accent-fg: #ffffff;
+  --danger: #c2372f;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.08);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121211;
+    --fg: #f1efe9;
+    --muted: #97938a;
+    --line: #2a2926;
+    --card: #1b1a18;
+    --accent: #f1efe9;
+    --accent-fg: #121211;
+    --danger: #ff6b61;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- auth / admin screens ---- */
+
+.Screen {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.Screen--top {
+  align-items: flex-start;
+  padding-top: 48px;
+}
+
+.Card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px 24px;
+  box-shadow: var(--shadow);
+}
+
+.Card--wide {
+  max-width: 720px;
+}
+
+.Card--quiet {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  text-align: center;
+}
+
+.Card p {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.Wordmark {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 16px;
+}
+
+.Muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.Error {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.Form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.Form--row {
+  flex-direction: row;
+  margin-bottom: 8px;
+}
+
+.Form--row .Input {
+  flex: 1;
+}
+
+.Input {
+  font: inherit;
+  font-size: 15px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+  width: 100%;
+}
+
+.Input:focus {
+  border-color: var(--fg);
+}
+
+.Button {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+}
+
+.Button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.Button--ghost {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--line);
+}
+
+.Link {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--fg);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.Link--danger {
+  color: var(--danger);
+}
+
+.AdminHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.AdminNav {
+  display: flex;
+  gap: 16px;
+  font-size: 14px;
+}
+
+.AdminNav a {
+  color: var(--fg);
+}
+
+.Table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-top: 12px;
+}
+
+.Table th,
+.Table td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.Table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.Table-actions {
+  text-align: right;
+}
+
+.Tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .Table th:nth-child(3),
+  .Table td:nth-child(3) {
+    display: none;
+  }
+}
+
+/* ---- canvas ---- */
+
+/* The board's chrome follows the board's own theme (the switch is in its
+   menu), not the OS: these tokens track `data-theme` on the canvas root. */
+.CanvasRoot {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  --panel: rgba(255, 255, 255, 0.92);
+  --panel-fg: #211d14;
+  --panel-muted: rgba(33, 29, 20, 0.55);
+  --panel-line: rgba(28, 27, 24, 0.12);
+  --panel-hover: rgba(28, 27, 24, 0.07);
+  --panel-shadow: 0 4px 16px rgba(28, 27, 24, 0.14);
+  --panel-shadow-strong: 0 8px 28px rgba(28, 27, 24, 0.2);
+  color-scheme: light;
+}
+
+.CanvasRoot[data-theme='dark'] {
+  --panel: rgba(19, 17, 13, 0.85);
+  --panel-fg: rgba(255, 255, 255, 0.9);
+  --panel-muted: rgba(255, 255, 255, 0.55);
+  --panel-line: rgba(255, 255, 255, 0.14);
+  --panel-hover: rgba(255, 255, 255, 0.1);
+  --panel-shadow: 0 4px 16px rgba(10, 8, 4, 0.25);
+  --panel-shadow-strong: 0 8px 28px rgba(10, 8, 4, 0.35);
+  color-scheme: dark;
+}
+
+/* Quickdraw's floating UI sits at z 40 (popovers 60, help 50). Cursors and the
+   attribution label go under it; the top bar above it so its menu can open. */
+
+.Cursors {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 38;
+}
+
+.Cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+  transition: transform 60ms linear;
+}
+
+.Cursor svg {
+  display: block;
+  margin: -2px 0 0 -2px;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+
+.Cursor-name {
+  position: absolute;
+  top: 16px;
+  left: 14px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+
+.Attribution {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  background: var(--panel);
+  color: var(--panel-fg);
+  border: 1px solid var(--panel-line);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 38;
+}
+
+.Attribution-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.Attribution-time,
+.Attribution-edit {
+  color: var(--panel-muted);
+}
+
+.Attribution-edit {
+  padding-left: 6px;
+  border-left: 1px solid var(--panel-line);
+}
+
+.TopBar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  pointer-events: all;
+}
+
+.TopBar-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: 0 2px;
+  background: #39b178;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.TopBar-status--connecting {
+  background: #e8b33a;
+}
+
+.TopBar-status--offline {
+  background: #ec5e41;
+  animation: TopBar-pulse 1.2s ease-in-out infinite;
+}
+
+/* Signed in: the status light becomes the ring around your own avatar
+   (the avatar keeps your colour; it is set inline). */
+.AvatarButton {
+  --status: #39b178;
+}
+
+.AvatarButton.TopBar-status--connecting {
+  --status: #e8b33a;
+}
+
+.AvatarButton.TopBar-status--offline {
+  --status: #ec5e41;
+  animation: TopBar-pulse 1.2s ease-in-out infinite;
+}
+
+.Avatar--me {
+  box-shadow: 0 0 0 2px var(--status), var(--panel-shadow);
+}
+
+.AvatarButton:hover .Avatar--me {
+  filter: brightness(1.08);
+}
+
+@keyframes TopBar-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.TopBar-people {
+  display: flex;
+  align-items: center;
+}
+
+.Avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  margin-left: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 2px solid var(--panel);
+  box-shadow: var(--panel-shadow);
+}
+
+.Avatar:first-child,
+.TopBar-status + .Avatar {
+  margin-left: 0;
+}
+
+img.Avatar {
+  display: block;
+  object-fit: cover;
+  padding: 0;
+}
+
+.AvatarButton {
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font: inherit;
+}
+
+.Avatar--large {
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  font-size: 18px;
+}
+
+.Avatar--small {
+  width: 22px;
+  height: 22px;
+  margin: 0 8px 0 0;
+  border-width: 1px;
+  box-shadow: none;
+  vertical-align: middle;
+  font-size: 9px;
+}
+
+.Table-person {
+  white-space: nowrap;
+}
+
+.PhotoPick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.PhotoPick-preview,
+.PhotoPick-empty {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex: none;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.PhotoPick-empty {
+  background: repeating-linear-gradient(45deg, var(--line) 0 2px, transparent 2px 6px);
+}
+
+.Cursor-photo {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  object-fit: cover;
+  vertical-align: -3px;
+  margin-right: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+
+.Attribution-photo {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+
+.Avatar--more {
+  background: var(--panel);
+  color: var(--panel-fg);
+}
+
+.TopBar-button {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-line);
+  cursor: pointer;
+  background: var(--panel);
+  color: var(--panel-fg);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  text-decoration: none;
+}
+
+.TopBar-button:hover {
+  background: var(--panel-hover);
+}
+
+.TopBar-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.TopBar-button--primary {
+  background: #211d14;
+  color: #fbf9f4;
+  border-color: transparent;
+}
+
+.CanvasRoot[data-theme='dark'] .TopBar-button--primary {
+  background: #fbf9f4;
+  color: #211d14;
+}
+
+.TopBar-button--primary:hover {
+  filter: brightness(1.15);
+}
+
+.TopBar-button--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.TopBar-button--icon svg {
+  display: block;
+}
+
+.TopBar-button--done {
+  color: #39b178;
+}
+
+.TopBar-button--quiet {
+  box-shadow: none;
+  background: transparent;
+  border-color: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.TopBar-menu {
+  position: relative;
+}
+
+.TopBar-dropdown {
+  display: flex;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 140px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  box-shadow: var(--panel-shadow-strong);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  flex-direction: column;
+  z-index: 1;
+}
+
+.TopBar-item {
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--panel-fg);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.TopBar-item:hover {
+  background: var(--panel-hover);
+}
+
+/* ---- photo dialog ---- */
+
+.Modal {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.Modal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--fg);
+}
+
+.Modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.Modal-spacer {
+  flex: 1;
+}
+
+.PhotoDialog-current {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.DropZone {
+  font: inherit;
+  font-size: 14px;
+  padding: 26px 16px;
+  border-radius: 12px;
+  border: 1.5px dashed var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+}
+
+.DropZone:hover,
+.DropZone--over {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+
+.DropZone:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 560px) {
+  .TopBar-button {
+    padding: 6px 8px;
+  }
+}
+
+/* ---- desktop.fyi additions ---- */
+
+.Wordmark a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.Card--landing {
+  max-width: 460px;
+}
+
+.Landing-lede {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.Landing-rules {
+  margin: 0 0 20px;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.Card--landing .Button {
+  width: 100%;
+}
+
+.HandleField {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.HandleField:focus-within {
+  border-color: var(--fg);
+}
+
+.HandleField-prefix {
+  padding: 10px 0 10px 12px;
+  color: var(--muted);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.HandleField .Input {
+  border: none;
+  padding-left: 2px;
+  background: transparent;
+}
+
+.HandleField .Input:focus {
+  border: none;
+}
+
+.Rule {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 20px 0 16px;
+}
+
+.Card a {
+  color: var(--fg);
+}
+
+/* board header (top-left) */
+
+.BoardHeader {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  pointer-events: all;
+  max-width: calc(100vw - 16px);
+}
+
+.BoardHeader-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px 3px 4px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--panel-fg);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.BoardHeader-owner .Avatar {
+  margin-left: 0;
+}
+
+.BoardHeader-owner .TopBar-button {
+  margin-left: 4px;
+  box-shadow: none;
+}
+
+.BoardHeader-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.BoardHeader-name strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.BoardHeader-handle {
+  color: var(--panel-muted);
+  font-size: 11px;
+}
+
+.Avatar--blank {
+  background: var(--panel-line);
+}
+
+.TopBar-dropdown--left {
+  left: 0;
+  right: auto;
+  min-width: 200px;
+}
+
+.TopBar-item--on {
+  font-weight: 600;
+}
+
+.TopBar-item--check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.TopBar-item--check input {
+  margin: 0;
+}
+
+.TopBar-count {
+  float: right;
+  margin-left: 12px;
+  color: var(--panel-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.TopBar-rule {
+  border: none;
+  border-top: 1px solid var(--panel-line);
+  margin: 4px 0;
+}
+
+.TopBar-button svg {
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+
+.Notice {
+  position: absolute;
+  left: 50%;
+  bottom: 88px;
+  transform: translateX(-50%);
+  z-index: 46;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--panel-fg);
+  border: 1px solid var(--panel-line);
+  box-shadow: var(--panel-shadow-strong);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 13px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.Attribution-age--fading {
+  color: #c98a1b;
+}
+
+.Attribution-age--hidden {
+  color: #ec5e41;
+}
+
+/* feed */
+
+.Card--feed {
+  max-width: 920px;
+}
+
+.FeedSection {
+  margin-top: 20px;
+}
+
+.FeedSection-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.FeedGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.FeedCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  text-decoration: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.FeedCard:hover {
+  transform: translateY(-1px);
+  opacity: 1 !important;
+}
+
+.FeedCard-thumb {
+  height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+.FeedCard-thumb canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.FeedCard-meta {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.FeedCard-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.FeedCard-age {
+  font-size: 11px;
+  color: #c98a1b;
+}
+
+@media (max-width: 560px) {
+  .BoardHeader-name {
+    display: none;
+  }
+}

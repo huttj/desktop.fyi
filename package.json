@@ -1,0 +1,35 @@
+{
+  "name": "desktop-fyi",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && wrangler deploy -c dist/desktop_fyi/wrangler.json",
+    "types": "wrangler types",
+    "check": "tsc",
+    "test": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply desktop-fyi --local",
+    "db:migrate:remote": "wrangler d1 migrations apply desktop-fyi --remote"
+  },
+  "dependencies": {
+    "@quickdrawjs/core": "file:vendor/quickdraw/packages/core",
+    "@quickdrawjs/react": "file:vendor/quickdraw/packages/react",
+    "itty-router": "^5.0.18",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.29.1",
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^5.8.3",
+    "vite": "^8.0.16",
+    "vitest": "^3.1.0",
+    "wrangler": "^4.135.0"
+  }
+}
