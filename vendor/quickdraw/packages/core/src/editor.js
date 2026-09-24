@@ -1409,21 +1409,28 @@ export class Editor {
     if (!shape) return
     const z = this.camera.z
     const ta = ed.textarea
+    // The surface is laid out at the shape's own size and scaled by the
+    // camera with a transform: type set in zoomed pixels gets its line boxes
+    // snapped to whole pixels (WebKit), so the block would breathe and jump
+    // against the canvas as you zoom; a transform scales it continuously.
     let lay, w, h, align = 'left'
     let ox = 0, oy = 0 // where the surface sits inside the shape, page units
+    let unit = 1 // page units per surface pixel (a note's scale)
+    ta.style.paddingTop = ''
     if (shape.type === 'note') {
       lay = noteLayout(shape)
       const s = shape.props.scale || 1
+      unit = s
       // anchor the surface where the canvas draws the (vertically centered)
       // text block, so committing doesn't jump the text — 20 = NOTE_PAD
       const yStart = Math.max(20, lay.boxH / 2 - lay.textH / 2)
       ox = 20 * s
       oy = yStart * s
-      w = (lay.boxW - 40) * s
-      h = lay.textH * s
+      w = lay.boxW - 40
+      h = lay.textH
       align = shape.props.align === 'start' ? 'left' : shape.props.align === 'end' ? 'right' : 'center'
-      ta.style.font = `500 ${lay.fontSize * s * z}px ${lay.font}`
-      ta.style.lineHeight = lay.lh * s * z + 'px'
+      ta.style.font = `500 ${lay.fontSize}px ${lay.font}`
+      ta.style.lineHeight = lay.lh + 'px'
     } else if (shape.type === 'geo' && ed.field === 'label') {
       const p = shape.props
       const fs = FONT_SIZES[p.labelSize || 's']
@@ -1433,32 +1440,36 @@ export class Editor {
       w = p.w - 16
       h = p.h - 16
       align = 'center'
-      ta.style.font = `500 ${fs * z}px ${fam}`
-      ta.style.lineHeight = fs * 1.3 * z + 'px'
-      ta.style.paddingTop = Math.max(0, (h * z) / 2 - fs * 1.3 * z) / 2 + 'px'
+      ta.style.font = `500 ${fs}px ${fam}`
+      ta.style.lineHeight = fs * 1.3 + 'px'
+      ta.style.paddingTop = Math.max(0, h / 2 - fs * 1.3) / 2 + 'px'
     } else {
       lay = textLayout(shape)
       w = Math.max(lay.w + 4, 40)
       h = lay.h + 4
       const p = shape.props
       align = p.align === 'middle' ? 'center' : p.align === 'end' ? 'right' : 'left'
-      ta.style.font = `500 ${lay.fontSize * z}px ${lay.font}`
-      ta.style.lineHeight = lay.lh * z + 'px'
+      ta.style.font = `500 ${lay.fontSize}px ${lay.font}`
+      ta.style.lineHeight = lay.lh + 'px'
     }
     // the surface is laid at the shape's unrotated place, then turned about
     // the shape's centre like the canvas turns the shape: text is edited in
     // place, at whatever angle it sits
+    const k = z * unit
     const pos = this.pageToScreen(shape.x + ox, shape.y + oy)
     const lb = localBounds(shape)
     const col = this.theme.colors[shape.props.color || 'black']
+    // the shape's centre in surface pixels, and on screen relative to the surface's corner
+    const cx = (lb.x + lb.w / 2 - ox) / unit, cy = (lb.y + lb.h / 2 - oy) / unit
+    const sx = cx * k, sy = cy * k
     ta.style.left = pos.x + 'px'
     ta.style.top = pos.y + 'px'
-    ta.style.width = w * z + 'px'
-    ta.style.height = h * z + 'px'
+    ta.style.width = w + 'px'
+    ta.style.height = h + 'px'
     ta.style.textAlign = align
     ta.style.color = shape.type === 'note' ? this.theme.noteText : col.stroke
-    ta.style.transformOrigin = `${(lb.x + lb.w / 2 - ox) * z}px ${(lb.y + lb.h / 2 - oy) * z}px`
-    ta.style.transform = shape.rot ? `rotate(${shape.rot}rad)` : ''
+    ta.style.transformOrigin = '0 0'
+    ta.style.transform = (shape.rot ? `translate(${sx}px, ${sy}px) rotate(${shape.rot}rad) translate(${-sx}px, ${-sy}px) ` : '') + `scale(${k})`
   }
   // ---- formatting while editing --------------------------------------------
   // the style at the caret (or across the selection), pending toggles included
