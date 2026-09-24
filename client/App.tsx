@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Me } from '../shared/types'
-import { Admin } from './Admin'
 import { api, ApiError } from './api'
 import { Canvas } from './Canvas'
 import { Landing } from './Landing'
 import { Login } from './Login'
 import { NamePrompt } from './NamePrompt'
-import { Profile } from './Profile'
 
 type AuthState = { status: 'loading' } | { status: 'signed-out' } | { status: 'signed-in'; me: Me }
 
@@ -44,7 +42,7 @@ export function App() {
 
   if (auth.status === 'signed-out') {
     if (boardHandle) return <Canvas key={`viewer:${boardHandle}`} handle={boardHandle} me={null} onSignOut={signOut} />
-    if (path === '/login' || path === '/feed' || path === '/admin' || path === '/profile' || path === '/settings') return <Login />
+    if (['/login', '/feed', '/admin', '/profile', '/settings', '/stats'].includes(path)) return <Login />
     return <Landing />
   }
 
@@ -52,11 +50,10 @@ export function App() {
   // A first sign-in picks a name and a handle before anything else.
   if (!me.name || !me.handle) return <NamePrompt me={me} onDone={updateMe} />
 
-  if (boardHandle) return <Canvas key={`${me.id}:${boardHandle}`} handle={boardHandle} me={me} onSignOut={signOut} />
-  if (path === '/profile' || path === '/settings') return <Profile me={me} onMeChange={updateMe} onSignOut={signOut} />
-  if (path === '/admin') return <Admin me={me} onSignOut={signOut} />
-  // The feed lives on your desktop as a panel; anything else is your desktop too.
-  window.location.replace(path === '/feed' ? `/@${me.handle}#feed` : `/@${me.handle}`)
+  if (boardHandle) return <Canvas key={`${me.id}:${boardHandle}`} handle={boardHandle} me={me} onMeChange={updateMe} onSignOut={signOut} />
+  // Feed, profile and people live on your desktop as panels and popups; anything else is your desktop too.
+  const open = path === '/feed' ? '#feed' : path === '/profile' || path === '/settings' ? '#profile' : path === '/admin' ? '#people' : ''
+  window.location.replace(`/@${me.handle}${open}`)
   return <Splash />
 }
 

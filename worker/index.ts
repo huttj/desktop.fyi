@@ -331,9 +331,13 @@ const router = AutoRouter<IRequest, Args>({
   // ---- app shell for desktop addresses ----
   // "/@handle" never reaches the asset router (it would 307 to "/%40handle"):
   // hand back the SPA entry and let the client route it.
-  .get('/@:handle', (request, env) => {
+  .get('/@:handle', async (request, env) => {
     if (!HANDLE_RE.test(request.params.handle.toLowerCase())) return undefined // not a desktop: fall through
-    return env.ASSETS.fetch(new URL('/', request.url).toString(), { headers: request.headers })
+    const res = await env.ASSETS.fetch(new URL('/', request.url).toString(), { headers: request.headers })
+    // The shell must never go stale: its script and style names change with every deploy.
+    const headers = new Headers(res.headers)
+    headers.set('cache-control', 'no-cache')
+    return new Response(res.body, { status: res.status, headers })
   })
   // Anything else that reached the worker (in dev, Vite's own "/@vite/..." module URLs) goes back to the assets.
   .all('*', (request, env) => env.ASSETS.fetch(request.url, { headers: request.headers }))

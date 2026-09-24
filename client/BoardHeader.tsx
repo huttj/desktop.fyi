@@ -4,6 +4,7 @@ import type { ItemMeta, Me, Person, Profile } from '../shared/types'
 import { api } from './api'
 import { Avatar } from './Avatar'
 import { layersOf, type LayerView } from './freshness'
+import { Linkified } from './Linkified'
 import { nameOf, type People } from './people'
 
 /** Top-left chrome: whose desktop this is (and a way to anyone else's), and which layer you are looking at. */
@@ -161,7 +162,11 @@ function PeoplePicker({
                 )}
               </div>
             </div>
-            {ownerPerson?.bio && <p className="PeoplePicker-bio">{ownerPerson.bio}</p>}
+            {ownerPerson?.bio && (
+              <p className="PeoplePicker-bio">
+                <Linkified text={ownerPerson.bio} />
+              </p>
+            )}
             {me && !isMine && profile && (
               <button type="button" className={`TopBar-button${profile.isFollowing ? '' : ' TopBar-button--primary'}`} onClick={toggleFollow} disabled={busy}>
                 {profile.isFollowing ? 'Following' : profile.followsYou ? 'Follow back' : 'Follow'}

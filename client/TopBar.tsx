@@ -4,7 +4,8 @@ import type { Peer } from '../shared/protocol'
 import type { Me } from '../shared/types'
 import { Avatar } from './Avatar'
 import { nameOf, type People } from './people'
-import { StatsDialog } from './StatsDialog'
+import type { Dialog } from './Canvas'
+import { ViewersMenu } from './ViewersMenu'
 import type { SyncStatus } from './sync'
 import { viewLink } from './viewLink'
 
@@ -14,7 +15,7 @@ const STATUS_LABEL: Record<SyncStatus, string> = {
   offline: 'Offline. Reconnecting…',
 }
 
-/** Top-right chrome: who else is here, the feed, copy-a-link-to-this-view, and you (photo and name open the menu). */
+/** Top-right chrome: who else is here (a menu: watch or follow them), the feed, copy-a-link-to-this-view, and you. */
 export function TopBar({
   me,
   onSignOut,
@@ -24,6 +25,9 @@ export function TopBar({
   people,
   feedOpen,
   onFeed,
+  watching,
+  onWatch,
+  onOpen,
 }: {
   me: Me | null
   onSignOut: () => void
@@ -33,11 +37,29 @@ export function TopBar({
   people: People
   feedOpen: boolean
   onFeed: (open: boolean) => void
+  watching: string | null
+  onWatch: (sessionId: string | null) => void
+  onOpen: (dialog: Dialog) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [statsOpen, setStatsOpen] = useState(false)
+  const [viewersOpen, setViewersOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const viewersRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!viewersOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (!viewersRef.current?.contains(e.target as Node)) setViewersOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setViewersOpen(false)
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [viewersOpen])
 
   useEffect(() => {
     if (!copied) return
@@ -81,14 +103,30 @@ export function TopBar({
   return (
     <div className="TopBar" onPointerDown={(e) => e.stopPropagation()}>
       {here > 0 && (
-        <div className="TopBar-people TopBar-button" title={whoIsHere}>
-          {others.slice(0, 4).map((id) => (
-            <Avatar key={id} id={id} name={nameOf(people, id)} avatar={people.get(id)?.avatar ?? null} />
-          ))}
-          {others.length > 4 && <span className="Avatar Avatar--more">+{others.length - 4}</span>}
-          <span className="TopBar-count TopBar-count--here">
-            <EyeIcon /> {here}
-          </span>
+        <div className="TopBar-menu" ref={viewersRef}>
+          <button type="button" className={`TopBar-people TopBar-button${watching ? ' TopBar-button--on' : ''}`} title={whoIsHere} onClick={() => setViewersOpen((o) => !o)} aria-expanded={viewersOpen}>
+            {others.slice(0, 4).map((id) => (
+              <Avatar key={id} id={id} name={nameOf(people, id)} avatar={people.get(id)?.avatar ?? null} />
+            ))}
+            {others.length > 4 && <span className="Avatar Avatar--more">+{others.length - 4}</span>}
+            <span className="TopBar-count TopBar-count--here">
+              <EyeIcon /> {here}
+            </span>
+          </button>
+          {viewersOpen && (
+            <div className="TopBar-dropdown PeoplePicker">
+              <ViewersMenu
+                me={me}
+                peers={peers}
+                people={people}
+                watching={watching}
+                onWatch={(id) => {
+                  onWatch(id)
+                  setViewersOpen(false)
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
       {me && (
@@ -140,23 +178,16 @@ export function TopBar({
               >
                 Feed
               </button>
-              <a className="TopBar-item" href="/profile">
+              <button type="button" className="TopBar-item" onClick={() => (onOpen('profile'), setMenuOpen(false))}>
                 Profile
-              </a>
-              <button
-                type="button"
-                className="TopBar-item"
-                onClick={() => {
-                  setStatsOpen(true)
-                  setMenuOpen(false)
-                }}
-              >
+              </button>
+              <button type="button" className="TopBar-item" onClick={() => (onOpen('stats'), setMenuOpen(false))}>
                 Stats
               </button>
               {me.isAdmin && (
-                <a className="TopBar-item" href="/admin">
+                <button type="button" className="TopBar-item" onClick={() => (onOpen('people'), setMenuOpen(false))}>
                   People
-                </a>
+                </button>
               )}
               <button type="button" className="TopBar-item" onClick={onSignOut}>
                 Sign out
@@ -169,7 +200,6 @@ export function TopBar({
           Sign in to add
         </a>
       )}
-      {statsOpen && me && <StatsDialog me={me} onClose={() => setStatsOpen(false)} />}
     </div>
   )
 }

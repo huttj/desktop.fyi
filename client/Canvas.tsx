@@ -8,10 +8,13 @@ import { BoardHeader } from './BoardHeader'
 import { Cursors } from './Cursors'
 import { FeedPanel } from './FeedPanel'
 import { SelectionActions } from './SelectionActions'
+import { AdminDialog } from './AdminDialog'
+import { ProfileDialog } from './ProfileDialog'
+import { StatsDialog } from './StatsDialog'
 import { Viewports } from './Viewports'
 import { installFreshness, type FreshnessState, type LayerView } from './freshness'
 import { installLinkify } from './linkify'
-import type { People } from './people'
+import { nameOf, type People } from './people'
 import { BoardSync, type SyncStatus } from './sync'
 import { TopBar } from './TopBar'
 import { applyView, mirrorViewToHash, parseView } from './viewLink'
@@ -43,7 +46,9 @@ function socketUrl(handle: string) {
  * One desktop. `me` is null for anonymous viewers: they can look around but
  * the room refuses their edits. Signed-in visitors add to their own layer.
  */
-export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | null; onSignOut: () => void }) {
+export type Dialog = 'stats' | 'profile' | 'people'
+
+export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; me: Me | null; onMeChange?: (me: Me) => void; onSignOut: () => void }) {
   const store = useQuickdrawStore()
   const editorRef = useRef<Editor | null>(null)
   const syncRef = useRef<BoardSync | null>(null)
@@ -62,6 +67,13 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
   const [metaVersion, setMetaVersion] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [feedOpen, setFeedOpen] = useState(() => !!me && window.location.hash === '#feed')
+  const [dialog, setDialog] = useState<Dialog | null>(() => {
+    if (!me) return null
+    const h = window.location.hash
+    return h === '#profile' ? 'profile' : h === '#people' && me.isAdmin ? 'people' : h === '#stats' ? 'stats' : null
+  })
+  /** The window whose view my camera is tracking, until I move it myself. */
+  const [watching, setWatching] = useState<string | null>(null)
 
   // The room's bookkeeping, read by the render hooks on every frame.
   const fresh = useRef<FreshnessState>({ metas: new Map<string, ItemMeta>(), viewerId: me?.id ?? null, view: 'all', showHidden: false })
@@ -70,7 +82,7 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
 
   // Opening the feed from another page lands on "#feed"; the camera hash takes over from there.
   useEffect(() => {
-    if (window.location.hash === '#feed') window.history.replaceState(null, '', window.location.pathname)
+    if (/^#(feed|profile|people|stats)$/.test(window.location.hash)) window.history.replaceState(null, '', window.location.pathname)
   }, [])
   const framed = useRef(false)
 
@@ -224,6 +236,36 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
 
   useEffect(() => (editor ? installFreshness(editor, fresh.current) : undefined), [editor])
 
+  // Watching: my camera follows theirs as it moves; touching the board myself ends it.
+  useEffect(() => {
+    if (!editor || !watching) return
+    const peer = peers.find((p) => p.sessionId === watching)
+    if (!peer) return setWatching(null)
+    if (peer.viewport) editor.followBounds(peer.viewport, { animate: 160 })
+  }, [editor, watching, peers])
+  useEffect(() => {
+    if (!editor || !watching) return
+    const stop = () => setWatching(null)
+    // Any move of my own ends it: a press or scroll on the board, or a key that is not typed into a field.
+    const onKey = (e: Event) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if ((e as unknown as { key: string }).key === 'Escape') return // closes menus, not this
+      stop()
+    }
+    const el = editor.container
+    el.addEventListener('pointerdown', stop)
+    el.addEventListener('wheel', stop, { passive: true })
+    window.addEventListener('keydown', onKey)
+    return () => {
+      el.removeEventListener('pointerdown', stop)
+      el.removeEventListener('wheel', stop)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [editor, watching])
+  const watchedPeer = watching ? peers.find((p) => p.sessionId === watching) : null
+  const watchedName = watchedPeer ? (watchedPeer.userId ? (me && watchedPeer.userId === me.id ? 'your other window' : nameOf(people, watchedPeer.userId)) : 'a visitor') : null
+
   // A link to items on this very desktop (from the feed, say) only changes the hash: follow it.
   const feedOpenRef = useRef(feedOpen)
   feedOpenRef.current = feedOpen
@@ -313,7 +355,15 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
         showHidden={showHidden}
         onShowHidden={setShowHidden}
       />
-      <TopBar me={me} onSignOut={onSignOut} editor={editor} status={status} peers={peers} people={people} feedOpen={feedOpen} onFeed={setFeedOpen} />
+      <TopBar me={me} onSignOut={onSignOut} editor={editor} status={status} peers={peers} people={people} feedOpen={feedOpen} onFeed={setFeedOpen} watching={watching} onWatch={setWatching} onOpen={setDialog} />
+      {dialog === 'stats' && me && <StatsDialog me={me} onClose={() => setDialog(null)} />}
+      {dialog === 'profile' && me && onMeChange && <ProfileDialog me={me} onMeChange={onMeChange} onSignOut={onSignOut} onClose={() => setDialog(null)} />}
+      {dialog === 'people' && me?.isAdmin && <AdminDialog me={me} onClose={() => setDialog(null)} />}
+      {watchedName && (
+        <button type="button" className="Notice Notice--button" onClick={() => setWatching(null)} onPointerDown={(e) => e.stopPropagation()}>
+          Watching {watchedName} · click to stop
+        </button>
+      )}
       {feedOpen && me && <FeedPanel me={me} theme={theme} onClose={() => setFeedOpen(false)} />}
       {notice && <div className="Notice">{notice}</div>}
     </div>
