@@ -59,6 +59,12 @@ const rotateCursor = (deg) => {
 }
 const LONG_PRESS = 500 // ms of a still touch before the context menu opens
 const SNAP_PX = 6 // screen pixels within which a moving edge settles onto another
+// the empty space between two boxes (0 when they touch or overlap)
+const rectGap = (a, b) => {
+  const dx = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w))
+  const dy = Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h))
+  return Math.hypot(dx, dy)
+}
 
 export const ALIGN_MODES = ['left', 'center', 'right', 'top', 'middle', 'bottom']
 
@@ -1752,12 +1758,13 @@ export class Editor {
         const cands = ss.cands || (ss.cands = this._snapCandidates(new Set(ss.orig.keys())))
         const guides = []
         const mx = { x: b.x + dx, w: b.w }, my = { y: b.y + dy, h: b.h }
+        const box = { x: b.x + dx, y: b.y + dy, w: b.w, h: b.h }
         if (!(ss.shift && dx === 0)) {
-          const sx = this._snapAxis([mx.x, mx.x + mx.w / 2, mx.x + mx.w], cands.xs, tol)
+          const sx = this._snapAxis([mx.x, mx.x + mx.w / 2, mx.x + mx.w], cands.xs, tol, box)
           if (sx) { dx += sx.d; guides.push({ axis: 'x', at: sx.at, from: Math.min(my.y, sx.b.y), to: Math.max(my.y + my.h, sx.b.y + sx.b.h) }) }
         }
         if (!(ss.shift && dy === 0)) {
-          const sy = this._snapAxis([my.y, my.y + my.h / 2, my.y + my.h], cands.ys, tol)
+          const sy = this._snapAxis([my.y, my.y + my.h / 2, my.y + my.h], cands.ys, tol, box)
           const fx = b.x + dx // the box's settled left, after any x snap
           if (sy) { dy += sy.d; guides.push({ axis: 'y', at: sy.at, from: Math.min(fx, sy.b.x), to: Math.max(fx + b.w, sy.b.x + sy.b.w) }) }
         }
@@ -1775,23 +1782,31 @@ export class Editor {
   // edges and centre lines of everything else within a few screen pixels, and
   // the overlay draws the line it settled on. ⌘ (or ctrl on Windows) held
   // while dragging turns it off.
+  // Only what is on screen (a little past its edges) offers lines to settle on.
   _snapCandidates(excludeIds) {
     const xs = [], ys = []
+    const vp = this.viewportPageBounds()
+    const onScreen = vp.w > 1 && vp.h > 1 ? boundsExpand(vp, Math.max(vp.w, vp.h) * 0.25) : null
     for (const s of this.shapesSorted()) {
       if (excludeIds.has(s.id)) continue
       const b = pageBounds(s)
+      if (onScreen && (b.x + b.w < onScreen.x || b.x > onScreen.x + onScreen.w || b.y + b.h < onScreen.y || b.y > onScreen.y + onScreen.h)) continue
       xs.push({ at: b.x, b }, { at: b.x + b.w / 2, b }, { at: b.x + b.w, b })
       ys.push({ at: b.y, b }, { at: b.y + b.h / 2, b }, { at: b.y + b.h, b })
     }
     return { xs, ys }
   }
-  // the closest candidate to any of the moving lines, within tol: { d, at, b }
-  _snapAxis(moving, cands, tol) {
+  // The candidate to settle on, within tol of any moving line: the nearest
+  // thing wins, so a neighbour beats a far-off edge that happens to line up
+  // a hair better. `box` is the moving box, for that nearness.
+  _snapAxis(moving, cands, tol, box) {
     let best = null
     for (const m of moving) {
       for (const c of cands) {
         const d = c.at - m
-        if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, at: c.at, b: c.b }
+        if (Math.abs(d) > tol) continue
+        const score = Math.abs(d) + (box ? rectGap(box, c.b) / 40 : 0)
+        if (!best || score < best.score) best = { d, at: c.at, b: c.b, score }
       }
     }
     return best
@@ -1828,11 +1843,11 @@ export class Editor {
       const guides = []
       let { x: px, y: py } = p
       if (handle.includes('l') || handle.includes('r')) {
-        const s = this._snapAxis([px], cands.xs, tol)
+        const s = this._snapAxis([px], cands.xs, tol, init)
         if (s) { px = s.at; guides.push({ axis: 'x', at: s.at, from: Math.min(init.y, s.b.y), to: Math.max(init.y + init.h, s.b.y + s.b.h) }) }
       }
       if (handle.includes('t') || handle.includes('b')) {
-        const s = this._snapAxis([py], cands.ys, tol)
+        const s = this._snapAxis([py], cands.ys, tol, init)
         if (s) { py = s.at; guides.push({ axis: 'y', at: s.at, from: Math.min(init.x, s.b.x), to: Math.max(init.x + init.w, s.b.x + s.b.w) }) }
       }
       if (guides.length) { ss.snapGuides = guides; p = { x: px, y: py } }

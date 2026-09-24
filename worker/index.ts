@@ -5,7 +5,7 @@ import { BoardDurableObject, OWNER_HEADER, USER_HEADER } from './BoardDurableObj
 import { Db, HANDLE_RE, RESERVED_HANDLES, toPerson, toSummary, type UserRow } from './db'
 import { sendMagicLink } from './email'
 import { DAY_MS } from '../shared/freshness'
-import type { DesktopStats, Feed, FeedItem, Me, Person, Profile } from '../shared/types'
+import type { DesktopStats, Feed, FeedItem, Me, Person, PlacedItem, Profile } from '../shared/types'
 
 export { BoardDurableObject } from './BoardDurableObject'
 
@@ -266,16 +266,18 @@ const router = AutoRouter<IRequest, Args>({
       boards.map(async (id) => {
         const stub = board(env, id)
         try {
-          const [recent, vanishing] = await Promise.all([stub.activity(since, 30), stub.vanishing(id === me.id ? me.id : null, 30)])
-          return { recent, vanishing }
+          const [recent, vanishing, placed] = await Promise.all([stub.activity(since, 60), stub.vanishing(id === me.id ? me.id : null, 40), stub.placed()])
+          return { id, recent, vanishing, placed }
         } catch (e) {
           console.warn('feed: board unavailable', id, e)
-          return { recent: [] as FeedItem[], vanishing: [] as FeedItem[] }
+          return { id, recent: [] as FeedItem[], vanishing: [] as FeedItem[], placed: [] as PlacedItem[] }
         }
       })
     )
-    const recent = results.flatMap((r) => r.recent).sort((a, b) => b.meta.editedAt - a.meta.editedAt).slice(0, 120)
-    const vanishing = results.flatMap((r) => r.vanishing).sort((a, b) => b.age - a.age).slice(0, 80)
+    const recent = results.flatMap((r) => r.recent).sort((a, b) => b.meta.editedAt - a.meta.editedAt).slice(0, 240)
+    const vanishing = results.flatMap((r) => r.vanishing).sort((a, b) => b.age - a.age).slice(0, 120)
+    const placed: Record<string, PlacedItem[]> = {}
+    for (const r of results) if (r.placed.length) placed[r.id] = r.placed
     const ids = new Set<string>()
     for (const item of [...recent, ...vanishing]) {
       ids.add(item.boardId)
@@ -285,7 +287,7 @@ const router = AutoRouter<IRequest, Args>({
     }
     for (const id of following) ids.add(id)
     const people: Person[] = (await d.usersByIds([...ids])).map(toPerson)
-    const feed: Feed = { recent, vanishing, people }
+    const feed: Feed = { recent, vanishing, placed, people }
     return json(feed)
   })
 

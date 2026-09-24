@@ -1,10 +1,10 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
-import { centreOf } from '../shared/bounds'
+import { approxBounds, centreOf } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
 import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, canSee, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
-import type { DesktopStats, FeedItem, ItemMeta } from '../shared/types'
+import type { DesktopStats, FeedItem, ItemMeta, PlacedItem } from '../shared/types'
 
 /** Set by the worker (never trusted from the client). */
 export const USER_HEADER = 'x-dfyi-user'
@@ -545,6 +545,30 @@ export class BoardDurableObject extends DurableObject<Env> {
       if (age >= HIDE_AT) continue
       out.push(this.feedItem(row, meta, age))
       if (out.length >= limit) break
+    }
+    return out
+  }
+
+  /** Every visible thing, placed: the feed clusters with these so a long column stays one entry. */
+  async placed(limit = 2000): Promise<PlacedItem[]> {
+    const now = Date.now()
+    const rows = this.sql.exec<Row>("SELECT * FROM records WHERE state = 'live' AND is_asset = 0 ORDER BY edited_at DESC LIMIT ?", limit).toArray()
+    const out: PlacedItem[] = []
+    for (const row of rows) {
+      const meta = metaOf(row)
+      if (provisionalAge(meta, now) >= HIDE_AT) continue
+      const rec = JSON.parse(row.data) as ShapeRecord
+      const b = approxBounds(rec)
+      const item: PlacedItem = { id: row.id, x: b.x, y: b.y, w: b.w, h: b.h }
+      const raw = rec.type === 'text' ? rec.props?.text : rec.type === 'geo' ? rec.props?.label : null
+      if (typeof raw === 'string') {
+        const text = raw.replace(/\s+/g, ' ').trim()
+        if (text && text.length <= 60 && !/^https?:\/\//i.test(text)) {
+          item.text = text
+          item.weight = ({ s: 1, m: 2, l: 3, xl: 4 }[String(rec.props?.size)] ?? 2) * (Number(rec.props?.scale) || 1) * (rec.type === 'text' ? 1 : 0.5)
+        }
+      }
+      out.push(item)
     }
     return out
   }

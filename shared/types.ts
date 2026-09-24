@@ -69,9 +69,29 @@ export interface FeedItem {
   asset?: unknown
 }
 
+/** Where a visible thing sits on a desktop, and what it says if it is text: enough to cluster by. */
+export interface PlacedItem {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  /** A short text (or label), with a size rank, so a cluster can be captioned. */
+  text?: string
+  weight?: number
+}
+
+export interface BoardActivity {
+  recent: FeedItem[]
+  vanishing: FeedItem[]
+  placed: PlacedItem[]
+}
+
 export interface Feed {
   recent: FeedItem[]
   vanishing: FeedItem[]
+  /** Every visible thing on each desktop in the feed, by desktop, for clustering. */
+  placed: Record<string, PlacedItem[]>
   people: Person[]
 }
 

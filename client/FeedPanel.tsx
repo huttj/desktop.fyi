@@ -1,7 +1,7 @@
 import { pageBounds, type AssetRecord, type ShapeRecord } from '@quickdrawjs/core'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { describeAge } from '../shared/freshness'
-import type { Feed as FeedData, FeedItem, Me } from '../shared/types'
+import type { Feed as FeedData, FeedItem, Me, PlacedItem } from '../shared/types'
 import { api, ApiError } from './api'
 import { Avatar } from './Avatar'
 import { nameOf, relativeTime, type People } from './people'
@@ -28,7 +28,12 @@ interface Group {
 /** Boxes closer than this (page units) belong to the same cluster; bigger things reach a little further. */
 const CLUSTER_GAP = 160
 
-function clusterItems(items: FeedItem[]): Group[] {
+/**
+ * Clusters run over everything placed on a desktop, not only the things in
+ * the feed, so a long column whose older parts are not "new" still reads as
+ * one entry; each cluster then shows the feed's things that sit in it.
+ */
+function clusterItems(items: FeedItem[], placedByBoard: Record<string, PlacedItem[]>): Group[] {
   const groups: Group[] = []
   const byBoard = new Map<string, FeedItem[]>()
   for (const item of items) {
@@ -37,32 +42,40 @@ function clusterItems(items: FeedItem[]): Group[] {
     byBoard.set(item.boardId, list)
   }
   for (const [boardId, list] of byBoard) {
-    // union-find over the items that have a box; the rest stand alone
-    const placed = list.filter((i) => i.record)
-    const bounds = placed.map((i) => pageBounds(i.record as ShapeRecord))
-    const parent = placed.map((_, i) => i)
+    // every placed thing on the desktop, plus any feed item the placement missed
+    const nodes: PlacedItem[] = [...(placedByBoard[boardId] ?? [])]
+    const known = new Set(nodes.map((n) => n.id))
+    for (const item of list) {
+      if (known.has(item.id) || !item.record) continue
+      const b = pageBounds(item.record as ShapeRecord)
+      nodes.push({ id: item.id, x: b.x, y: b.y, w: b.w, h: b.h })
+      known.add(item.id)
+    }
+    const parent = nodes.map((_, i) => i)
     const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
-    for (let i = 0; i < placed.length; i++) {
-      for (let j = i + 1; j < placed.length; j++) {
-        const a = bounds[i]!, b = bounds[j]!
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i]!, b = nodes[j]!
         const reach = CLUSTER_GAP + 0.15 * Math.min(Math.max(a.w, a.h), Math.max(b.w, b.h))
         if (gapBetween(a, b) <= reach) parent[find(i)] = find(j)
       }
     }
-    const buckets = new Map<number, FeedItem[]>()
-    placed.forEach((item, i) => {
-      const root = find(i)
-      const bucket = buckets.get(root) ?? []
-      bucket.push(item)
+    const index = new Map(nodes.map((n, i) => [n.id, i]))
+    const buckets = new Map<number, { items: FeedItem[]; nodes: PlacedItem[] }>()
+    for (const item of list) {
+      const i = index.get(item.id)
+      const root = i === undefined ? -1 - buckets.size : find(i)
+      const bucket = buckets.get(root) ?? { items: [], nodes: [] }
+      bucket.items.push(item)
       buckets.set(root, bucket)
-    })
-    for (const bucket of buckets.values()) groups.push(makeGroup(boardId, bucket))
-    for (const lone of list.filter((i) => !i.record)) groups.push(makeGroup(boardId, [lone]))
+    }
+    nodes.forEach((n, i) => buckets.get(find(i))?.nodes.push(n))
+    for (const bucket of buckets.values()) groups.push(makeGroup(boardId, bucket.items, bucket.nodes))
   }
   return groups
 }
 
-function makeGroup(boardId: string, items: FeedItem[]): Group {
+function makeGroup(boardId: string, items: FeedItem[], nodes: PlacedItem[]): Group {
   const sorted = [...items].sort((a, b) => b.meta.editedAt - a.meta.editedAt)
   const people = [...new Set(sorted.map((i) => i.meta.by))]
   return {
@@ -72,22 +85,16 @@ function makeGroup(boardId: string, items: FeedItem[]): Group {
     newest: sorted[0]!.meta.editedAt,
     oldestAge: Math.max(...sorted.map((i) => i.age)),
     items: sorted,
-    title: titleOf(sorted),
+    title: titleOf(nodes),
   }
 }
 
-/** The biggest short text in the cluster, the way a heading would be. */
-function titleOf(items: FeedItem[]): string | null {
-  let best: { text: string; size: number } | null = null
-  for (const item of items) {
-    const r = item.record as ShapeRecord | undefined
-    if (!r) continue
-    const raw = r.type === 'text' ? r.props.text : r.type === 'geo' ? r.props.label : null
-    if (typeof raw !== 'string') continue
-    const text = raw.replace(/\s+/g, ' ').trim()
-    if (!text || text.length > 60 || /^https?:\/\//i.test(text)) continue
-    const size = ({ s: 1, m: 2, l: 3, xl: 4 }[String(r.props.size)] ?? 2) * (Number(r.props.scale) || 1) * (r.type === 'text' ? 1 : 0.5)
-    if (!best || size > best.size) best = { text, size }
+/** The biggest short text anywhere in the cluster, the way a heading would be. */
+function titleOf(nodes: PlacedItem[]): string | null {
+  let best: PlacedItem | null = null
+  for (const n of nodes) {
+    if (!n.text) continue
+    if (!best || (n.weight ?? 0) > (best.weight ?? 0)) best = n
   }
   return best?.text ?? null
 }
@@ -148,8 +155,8 @@ export function FeedPanel({ me, theme, changeKey = 0, onClose }: { me: Me; theme
     map.set(me.id, { id: me.id, handle: me.handle, name: me.name, avatar: me.avatar })
     return map
   }, [feed, me])
-  const recent = useMemo(() => (feed ? clusterItems(feed.recent).sort((a, b) => b.newest - a.newest) : []), [feed])
-  const vanishing = useMemo(() => (feed ? clusterItems(feed.vanishing).sort((a, b) => b.oldestAge - a.oldestAge) : []), [feed])
+  const recent = useMemo(() => (feed ? clusterItems(feed.recent, feed.placed ?? {}).sort((a, b) => b.newest - a.newest) : []), [feed])
+  const vanishing = useMemo(() => (feed ? clusterItems(feed.vanishing, feed.placed ?? {}).sort((a, b) => b.oldestAge - a.oldestAge) : []), [feed])
 
   return (
     <aside className="FeedPanel" onPointerDown={(e) => e.stopPropagation()}>
