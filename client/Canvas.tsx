@@ -171,7 +171,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       if (framed.current) return
       framed.current = true
       if (initialView) {
-        if (!applyView(ed, initialView, { insetLeft: panelInset() })) {
+        if (!applyView(ed, initialView, { inset: panelInset() })) {
           setNotice('That item is no longer on this desktop')
           if (store.shapes().length) ed.fitContent({ maxZoom: 1 })
         }
@@ -294,13 +294,19 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   // A link to items on this very desktop (from the feed, say) only changes the hash: follow it.
   const feedOpenRef = useRef(feedOpen)
   feedOpenRef.current = feedOpen
-  const panelInset = () => (feedOpenRef.current ? Math.min(400, window.innerWidth * 0.5) : 0)
+  // What the chrome covers: the header strip, and the feed on whichever side it takes.
+  const panelInset = () => {
+    const top = 58
+    if (!feedOpenRef.current) return { top }
+    if (window.matchMedia('(max-width: 560px)').matches) return { top, bottom: window.innerHeight * 0.5 }
+    return { top, left: Math.min(400, window.innerWidth * 0.5) }
+  }
   useEffect(() => {
     if (!editor) return
     const onHash = () => {
       const view = parseView(window.location.hash)
       if (!view || view.kind !== 'items') return
-      if (!applyView(editor, view, { animate: 260, insetLeft: panelInset() })) setNotice('That item is no longer on this desktop')
+      if (!applyView(editor, view, { animate: 260, inset: panelInset() })) setNotice('That item is no longer on this desktop')
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)

@@ -65,8 +65,8 @@ export function SelectionActions({ editor, me, owner, metas, metaVersion, sync }
   return (
     <div className="SelectionActions" style={{ transform: `translate(${state.x}px, ${state.y}px) translate(-50%, 10px)` }} onPointerDown={(e) => e.stopPropagation()}>
       <button type="button" className={`SelectionActions-button${state.allPinned ? ' SelectionActions-button--on' : ''}`} onClick={() => sync?.pin(state.ids, !state.allPinned)} title={state.allPinned ? 'Let it age again' : 'Keep this: it never fades'}>
-        <KeepIcon /> {state.allPinned ? 'Kept' : 'Keep'}
-        {n > 1 ? ` ${n}` : ''}
+        <KeepIcon /> {n > 1 ? (state.allPinned ? 'Keeping these' : 'Keep these') : state.allPinned ? 'Kept' : 'Keep'}
+        {n > 1 && <span className="SelectionActions-count">{n}</span>}
       </button>
       {state.anyStale && (
         <button type="button" className="SelectionActions-button" onClick={() => sync?.freshen(state.ids)} title="Reset its age to zero">

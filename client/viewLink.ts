@@ -41,12 +41,21 @@ function union(a: Bounds | null, b: Bounds): Bounds {
  * Applies a deep link. Items are framed together (centred, zoomed to fit, selected).
  * Returns false when it names items that are not on the board (for this viewer).
  */
-export function applyView(editor: Editor, view: View, { animate = 0, insetLeft = 0 } = {}): boolean {
-  const { w: fullW, h } = editor.viewSize()
-  // a panel on the left covers part of the board: frame things in what is left
+export interface Inset {
+  left?: number
+  top?: number
+  bottom?: number
+}
+
+export function applyView(editor: Editor, view: View, { animate = 0, inset = {} as Inset } = {}): boolean {
+  const { w: fullW, h: fullH } = editor.viewSize()
+  // a panel covers part of the board (left on a desktop, bottom on a phone): frame things in what is left
+  const insetLeft = inset.left ?? 0
+  const insetTop = inset.top ?? 0
   const w = fullW - insetLeft
+  const h = fullH - insetTop - (inset.bottom ?? 0)
   if (view.kind === 'camera') {
-    editor.setCamera({ x: w / (2 * view.z) - view.x + insetLeft / view.z, y: h / (2 * view.z) - view.y, z: view.z }, { animate })
+    editor.setCamera({ x: w / (2 * view.z) - view.x + insetLeft / view.z, y: h / (2 * view.z) - view.y + insetTop / view.z, z: view.z }, { animate })
     return true
   }
   const present = view.ids.filter((id) => editor.shapesSorted().some((s) => s.id === id))
@@ -54,8 +63,9 @@ export function applyView(editor: Editor, view: View, { animate = 0, insetLeft =
   let b: Bounds | null = null
   for (const id of present) b = union(b, pageBounds(editor.store.get(id) as Parameters<typeof pageBounds>[0]))
   const box = b!
-  const z = Math.max(0.1, Math.min(1, Math.min(w / (box.w + 240), h / (box.h + 240))))
-  editor.setCamera({ x: w / (2 * z) - (box.x + box.w / 2) + insetLeft / z, y: h / (2 * z) - (box.y + box.h / 2), z }, { animate })
+  const pad = Math.min(240, Math.max(60, Math.min(w, h) * 0.2))
+  const z = Math.max(0.1, Math.min(1, Math.min(w / (box.w + pad), h / (box.h + pad))))
+  editor.setCamera({ x: w / (2 * z) - (box.x + box.w / 2) + insetLeft / z, y: h / (2 * z) - (box.y + box.h / 2) + insetTop / z, z }, { animate })
   // the hand only looks; the pointer picks things up
   if (editor.tool !== 'hand') editor.setSelection(present)
   return true

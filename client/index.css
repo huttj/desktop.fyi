@@ -1571,3 +1571,21 @@ img.Avatar {
     box-shadow: var(--panel-shadow);
   }
 }
+
+.SelectionActions-count {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--panel-hover);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.SelectionActions-button--on .SelectionActions-count {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* phones must never boost type: the board and its chrome are sized on purpose */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}

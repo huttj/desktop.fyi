@@ -552,6 +552,9 @@
 /* ---- text editing ---- */
 /* a contenteditable styled to match the canvas, so formatting shows as you type */
 .qd-text-edit {
+  /* the surface must match the canvas to the pixel: no font boosting on phones */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   position: absolute;
   z-index: 30;
   box-sizing: content-box;
