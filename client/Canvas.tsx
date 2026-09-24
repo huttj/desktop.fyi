@@ -76,7 +76,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   const [watching, setWatching] = useState<string | null>(null)
 
   // The room's bookkeeping, read by the render hooks on every frame.
-  const fresh = useRef<FreshnessState>({ metas: new Map<string, ItemMeta>(), viewerId: me?.id ?? null, view: 'all', showHidden: false })
+  const fresh = useRef<FreshnessState>({ metas: new Map<string, ItemMeta>(), viewerId: me?.id ?? null, view: 'owner', showHidden: false })
 
   const initialView = useMemo(() => parseView(window.location.hash), [])
 
@@ -146,7 +146,8 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   /** Where a change of mine lands: the desktop itself if it is mine and I am looking at it, else my own layer. */
   const layerFor = useCallback(() => {
     if (!me) return ''
-    if (owner === me.id && view !== 'all' && view !== me.id) return view
+    // the placeholder before the owner is known is never a layer
+    if (owner === me.id && view !== 'all' && view !== 'owner' && view !== me.id) return view
     return me.id
   }, [me, owner, view])
   const layerRef = useRef(layerFor)
