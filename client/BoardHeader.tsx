@@ -259,14 +259,16 @@ function LayerPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metas, metaVersion, owner, me])
 
-  const desktopLabel = isMine ? 'Just mine' : `Just ${ownerName}`
-  const label = view === 'all' ? 'Everyone' : view === owner ? desktopLabel : `${nameOf(people, view, me?.id)}'s layer`
+  const desktopLabel = isMine ? 'Just me' : `Just ${ownerName}`
+  const onDesktop = view === owner || view === 'owner'
+  // The desktop alone is the resting state: the pill is just the icon then.
+  const label = view === 'all' ? 'Everyone' : onDesktop ? null : `${nameOf(people, view, me?.id)}'s layer`
 
   return (
     <div className="TopBar-menu" ref={ref}>
-      <button type="button" className="TopBar-button" onClick={() => setOpen((o) => !o)} aria-expanded={open} title="Which layer to show">
+      <button type="button" className={`TopBar-button${label ? '' : ' TopBar-button--icon'}`} onClick={() => setOpen((o) => !o)} aria-expanded={open} title={label ? 'Which layer to show' : `${desktopLabel}. Which layer to show`}>
         <LayersIcon />
-        <span>{label}</span>
+        {label && <span>{label}</span>}
       </button>
       {open && (
         <div className="TopBar-dropdown TopBar-dropdown--left">
@@ -274,7 +276,7 @@ function LayerPicker({
             Everyone
           </button>
           {layers.map((id) => (
-            <button type="button" key={id} className={`TopBar-item${view === id ? ' TopBar-item--on' : ''}`} onClick={() => (onView(id), setOpen(false))}>
+            <button type="button" key={id} className={`TopBar-item${view === id || (id === owner && onDesktop) ? ' TopBar-item--on' : ''}`} onClick={() => (onView(id), setOpen(false))}>
               {id === owner ? desktopLabel : nameOf(people, id, me?.id)}
               <span className="TopBar-count">{counts.get(id) ?? 0}</span>
             </button>
@@ -297,7 +299,7 @@ function LayerPicker({
 
 function LayersIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg className="LayersIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="m12 3 9 5-9 5-9-5 9-5Z" />
       <path d="m3 13 9 5 9-5" />
     </svg>

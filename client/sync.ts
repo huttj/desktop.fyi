@@ -26,7 +26,7 @@ export interface SyncOptions {
 const MAX_MESSAGE_CHARS = 800_000
 const PING_MS = 20_000
 const DEAD_AFTER_MS = 50_000
-const THROTTLE_MS = 40
+const THROTTLE_MS = 70
 
 /**
  * Keeps a Quickdraw store in step with a desktop. Local changes go out as they

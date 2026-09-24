@@ -1,4 +1,4 @@
-import { Quickdraw, useQuickdrawStore, type Editor, type GridId, type ThemeId } from '@quickdrawjs/react'
+import { Quickdraw, openUrl, useQuickdrawStore, type Editor, type GridId, type ThemeId } from '@quickdrawjs/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Peer } from '../shared/protocol'
 import type { ItemMeta, Me, Profile } from '../shared/types'
@@ -62,7 +62,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   const [people, setPeople] = useState<People>(() => new Map())
   const [profile, setProfile] = useState<Profile | null | 'missing'>(null)
   const [owner, setOwner] = useState<string | null>(null)
-  const [view, setViewState] = useState<LayerView>('all')
+  const [view, setViewState] = useState<LayerView>('owner')
   const [showHidden, setShowHiddenState] = useState(false)
   const [metaVersion, setMetaVersion] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
@@ -189,7 +189,13 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       onStatus: setStatus,
       onPeers: setPeers,
       onLaser: (strokes) => editorRef.current?.setRemoteScribbles(strokes),
-      onInit: (info) => setOwner(info.owner),
+      onInit: (info) => {
+        setOwner(info.owner)
+        if (fresh.current.view === 'owner') {
+          fresh.current.view = info.owner
+          setViewState(info.owner)
+        }
+      },
       onMetas: (metas, reset) => {
         const map = fresh.current.metas
         if (reset) map.clear()
@@ -222,6 +228,10 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       ed.on('camera', () => syncRef.current?.sendViewport(ed.viewportPageBounds()))
       syncRef.current?.sendViewport(ed.viewportPageBounds())
 
+      // A tap on a link follows it, whatever the tool: the hand tool never would, and a
+      // finger wobbles past Quickdraw's own click threshold on the select tool.
+      installLinkTaps(ed)
+
       if (!me) {
         ed.setTool('hand')
         ed.on('tool', () => {
@@ -229,6 +239,8 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
         })
         return
       }
+      // Fingers start with the hand: panning first, moving things on purpose.
+      if (window.matchMedia('(pointer: coarse)').matches) ed.setTool('hand')
       ed.on('scribbles', () => syncRef.current?.sendLaser(ed.getScribbles()))
     },
     [me, frame]
@@ -337,7 +349,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
           writePref('dfyi:grid', g)
         }}
       />
-      {editor && <Viewports editor={editor} peers={peers} people={people} meId={me?.id ?? null} />}
+      {editor && watching && <Viewports editor={editor} peers={peers.filter((p) => p.sessionId === watching)} people={people} meId={me?.id ?? null} />}
       {editor && <Cursors editor={editor} peers={peers} people={people} />}
       {editor && <AttributionOverlay editor={editor} people={people} metas={fresh.current.metas} meId={me?.id ?? null} />}
       {editor && me && <SelectionActions editor={editor} me={me} owner={owner} metas={fresh.current.metas} metaVersion={metaVersion} sync={syncRef.current} />}
@@ -355,7 +367,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
         showHidden={showHidden}
         onShowHidden={setShowHidden}
       />
-      <TopBar me={me} onSignOut={onSignOut} editor={editor} status={status} peers={peers} people={people} feedOpen={feedOpen} onFeed={setFeedOpen} watching={watching} onWatch={setWatching} onOpen={setDialog} />
+      <TopBar me={me} onSignOut={onSignOut} status={status} peers={peers} people={people} feedOpen={feedOpen} onFeed={setFeedOpen} watching={watching} onWatch={setWatching} onOpen={setDialog} />
       {dialog === 'stats' && me && <StatsDialog me={me} onClose={() => setDialog(null)} />}
       {dialog === 'profile' && me && onMeChange && <ProfileDialog me={me} onMeChange={onMeChange} onSignOut={onSignOut} onClose={() => setDialog(null)} />}
       {dialog === 'people' && me?.isAdmin && <AdminDialog me={me} onClose={() => setDialog(null)} />}
@@ -368,4 +380,29 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       {notice && <div className="Notice">{notice}</div>}
     </div>
   )
+}
+
+/** Opens the link under a clean tap or click that Quickdraw itself would not follow. */
+function installLinkTaps(ed: Editor) {
+  let start: { x: number; y: number; t: number; type: string } | null = null
+  const el = ed.container
+  el.addEventListener('pointerdown', (e) => {
+    start = e.isPrimary ? { x: e.clientX, y: e.clientY, t: Date.now(), type: e.pointerType } : null
+  })
+  el.addEventListener('pointerup', (e) => {
+    const s = start
+    start = null
+    if (!s || !e.isPrimary) return
+    const dist = Math.hypot(e.clientX - s.x, e.clientY - s.y)
+    const slop = s.type === 'touch' ? 14 : 5
+    if (dist > slop || Date.now() - s.t > 500) return
+    // On the select tool Quickdraw opens a still click itself; only fill in the gaps.
+    if (ed.tool !== 'hand' && dist <= 4) return
+    const r = el.getBoundingClientRect()
+    const p = ed.screenToPage(e.clientX - r.left, e.clientY - r.top)
+    const hit = ed.hitTest(p.x, p.y)
+    if (!hit) return
+    const link = (ed as unknown as { _linkAt(shape: unknown, p: { x: number; y: number }): string | null })._linkAt(hit, p)
+    if (link) openUrl(link)
+  })
 }

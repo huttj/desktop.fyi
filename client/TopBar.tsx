@@ -1,4 +1,3 @@
-import type { Editor } from '@quickdrawjs/core'
 import { useEffect, useRef, useState } from 'react'
 import type { Peer } from '../shared/protocol'
 import type { Me } from '../shared/types'
@@ -7,7 +6,6 @@ import { nameOf, type People } from './people'
 import type { Dialog } from './Canvas'
 import { ViewersMenu } from './ViewersMenu'
 import type { SyncStatus } from './sync'
-import { viewLink } from './viewLink'
 
 const STATUS_LABEL: Record<SyncStatus, string> = {
   connecting: 'Connecting…',
@@ -15,11 +13,10 @@ const STATUS_LABEL: Record<SyncStatus, string> = {
   offline: 'Offline. Reconnecting…',
 }
 
-/** Top-right chrome: who else is here (a menu: watch or follow them), the feed, copy-a-link-to-this-view, and you. */
+/** Top-right chrome: who else is here (a menu: watch or follow them), the feed, and you. */
 export function TopBar({
   me,
   onSignOut,
-  editor,
   status,
   peers,
   people,
@@ -31,7 +28,6 @@ export function TopBar({
 }: {
   me: Me | null
   onSignOut: () => void
-  editor: Editor | null
   status: SyncStatus
   peers: Peer[]
   people: People
@@ -41,7 +37,6 @@ export function TopBar({
   onWatch: (sessionId: string | null) => void
   onOpen: (dialog: Dialog) => void
 }) {
-  const [copied, setCopied] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [viewersOpen, setViewersOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -62,12 +57,6 @@ export function TopBar({
   }, [viewersOpen])
 
   useEffect(() => {
-    if (!copied) return
-    const t = setTimeout(() => setCopied(false), 1800)
-    return () => clearTimeout(t)
-  }, [copied])
-
-  useEffect(() => {
     if (!menuOpen) return
     const onDown = (e: PointerEvent) => {
       if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
@@ -80,12 +69,6 @@ export function TopBar({
       document.removeEventListener('keydown', onKey)
     }
   }, [menuOpen])
-
-  async function copyViewLink() {
-    if (!editor) return
-    await navigator.clipboard.writeText(viewLink(editor))
-    setCopied(true)
-  }
 
   // Other people (one avatar each, however many windows), plus visitors who are not signed in.
   const others = [...new Set(peers.map((p) => p.userId).filter((id): id is string => !!id))].filter((id) => id !== me?.id)
@@ -141,16 +124,6 @@ export function TopBar({
           <FeedIcon />
         </button>
       )}
-      <button
-        type="button"
-        className={`TopBar-button TopBar-button--icon${copied ? ' TopBar-button--done' : ''}`}
-        onClick={copyViewLink}
-        disabled={!editor}
-        title={copied ? 'Copied!' : 'Copy a link to this view'}
-        aria-label="Copy a link to this view"
-      >
-        {copied ? <CheckIcon /> : <LinkIcon />}
-      </button>
       {me ? (
         <div className="TopBar-menu" ref={menuRef}>
           <button
@@ -197,27 +170,10 @@ export function TopBar({
         </div>
       ) : (
         <a className={`TopBar-button TopBar-button--primary${status === 'offline' ? ' TopBar-button--offline' : ''}`} href="/login" title={STATUS_LABEL[status]}>
-          Sign in to add
+          Log in
         </a>
       )}
     </div>
-  )
-}
-
-function LinkIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
   )
 }
 

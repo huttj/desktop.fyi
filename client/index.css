@@ -245,6 +245,10 @@ body {
   position: fixed;
   inset: 0;
   overflow: hidden;
+  /* a long press is for the board's own menu, not the browser's text selection */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   --panel: rgba(255, 255, 255, 0.92);
   --panel-solid: #ffffff;
   --panel-fg: #211d14;
@@ -284,7 +288,7 @@ body {
   top: 0;
   left: 0;
   will-change: transform;
-  transition: transform 60ms linear;
+  transition: transform 140ms cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
 .Cursor svg {
@@ -1362,7 +1366,7 @@ img.Avatar {
   border-radius: 6px;
   opacity: 0.55;
   will-change: transform;
-  transition: transform 90ms linear, width 90ms linear, height 90ms linear;
+  transition: transform 160ms ease-out, width 160ms ease-out, height 160ms ease-out;
 }
 
 .Viewport--covers {
@@ -1526,4 +1530,31 @@ img.Avatar {
   .CanvasRoot[data-theme='dark'] .qd-minimap {
     background: rgba(19, 17, 13, 0.92);
   }
+}
+
+/* the layers glyph sits a hair high in its box */
+.LayersIcon {
+  position: relative;
+  top: 1px;
+}
+
+
+/* menus on a phone: inset from the edges instead of hanging off a pill */
+@media (max-width: 560px) {
+  .TopBar-dropdown.PeoplePicker {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: 58px;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+.CanvasRoot input,
+.CanvasRoot textarea,
+.CanvasRoot [contenteditable] {
+  user-select: text;
+  -webkit-user-select: text;
 }

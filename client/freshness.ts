@@ -2,8 +2,8 @@ import type { Editor, ShapeRecord } from '@quickdrawjs/core'
 import { GHOST_ALPHA, alphaAt, canSee, provisionalAge, visibilityAt } from '../shared/freshness'
 import type { ItemMeta } from '../shared/types'
 
-/** Which layers are on screen: everything, or one person's. */
-export type LayerView = 'all' | string
+/** Which layers are on screen: everything, one person's (their id), or 'owner' before the owner is known. */
+export type LayerView = 'all' | 'owner' | string
 
 export interface FreshnessState {
   metas: Map<string, ItemMeta>
@@ -24,7 +24,7 @@ export function installFreshness(editor: Editor, state: FreshnessState): () => v
     const meta = state.metas.get(shape.id)
     // A record the room has not stamped yet (just made here) is fresh and on our layer.
     if (!meta) return 1
-    if (state.view !== 'all' && meta.layer !== state.view) return 0
+    if (state.view !== 'all' && state.view !== 'owner' && meta.layer !== state.view) return 0
     const age = provisionalAge(meta, Date.now())
     const v = visibilityAt(age)
     if (v === 'archived') return 0

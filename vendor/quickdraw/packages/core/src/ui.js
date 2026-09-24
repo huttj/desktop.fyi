@@ -284,7 +284,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   }
   const divider = () => { const d = el('i', 'qd-div'); dock.appendChild(d); dividers.push(d) }
 
-  addBtn('select'); addBtn('hand')
+  if (editor._coarse) { addBtn('hand'); addBtn('select') } else { addBtn('select'); addBtn('hand') }
   divider()
   addBtn('draw'); addBtn('highlight'); addBtn('eraser'); addBtn('laser')
   divider()
@@ -935,8 +935,8 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       m = 'compact'
       // styles/more/menu take 3 slots; select and draw are pinned; the rest
       // of the room goes to the tools that yield last
-      const extra = Math.max(0, slots - 5)
-      const keep = new Set(['select', 'draw'])
+      const extra = Math.max(0, slots - (editor._coarse ? 6 : 5))
+      const keep = new Set(editor._coarse ? ['hand', 'select', 'draw'] : ['select', 'draw'])
       for (let i = DROP_ORDER.length - 1, n = extra; i >= 0 && n > 0; i--, n--) keep.add(DROP_ORDER[i])
       hid = DOCK_NAMES.filter((n) => !keep.has(n))
     }

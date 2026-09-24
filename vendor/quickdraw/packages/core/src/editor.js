@@ -794,8 +794,18 @@ export class Editor {
 
     const p = this.screenToPage(s.x, s.y)
     if (e.button === 1 || this.spaceHeld || this.tool === 'hand') {
-      this.session = { type: 'panning', last: s }
+      this.session = { type: 'panning', last: s, pressAt: s }
       this._syncCursor('grabbing')
+      if (e.pointerType === 'touch') {
+        const ss = this.session
+        this._clearPressTimer()
+        this._pressTimer = setTimeout(() => {
+          this._pressTimer = 0
+          if (this.session !== ss) return
+          this.session = null
+          this._openContextMenu(s)
+        }, LONG_PRESS)
+      }
       return
     }
 

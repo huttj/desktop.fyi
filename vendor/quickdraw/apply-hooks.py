@@ -102,6 +102,39 @@ patch('src/editor.js', [
       }"""),
 ])
 
+# Upstream candidates for touch screens: the hand comes first in the dock and
+# never yields to a narrow frame, so a finger can always pan; and a still
+# finger on the hand tool opens the context menu, as it does on the pointer.
+patch('src/ui.js', [
+    ("""  addBtn('select'); addBtn('hand')
+  divider()""", """  if (editor._coarse) { addBtn('hand'); addBtn('select') } else { addBtn('select'); addBtn('hand') }
+  divider()"""),
+    ("""      const extra = Math.max(0, slots - 5)
+      const keep = new Set(['select', 'draw'])""", """      const extra = Math.max(0, slots - (editor._coarse ? 6 : 5))
+      const keep = new Set(editor._coarse ? ['hand', 'select', 'draw'] : ['select', 'draw'])"""),
+])
+patch('src/editor.js', [
+    ("""    if (e.button === 1 || this.spaceHeld || this.tool === 'hand') {
+      this.session = { type: 'panning', last: s }
+      this._syncCursor('grabbing')
+      return
+    }""", """    if (e.button === 1 || this.spaceHeld || this.tool === 'hand') {
+      this.session = { type: 'panning', last: s, pressAt: s }
+      this._syncCursor('grabbing')
+      if (e.pointerType === 'touch') {
+        const ss = this.session
+        this._clearPressTimer()
+        this._pressTimer = setTimeout(() => {
+          this._pressTimer = 0
+          if (this.session !== ss) return
+          this.session = null
+          this._openContextMenu(s)
+        }, LONG_PRESS)
+      }
+      return
+    }"""),
+])
+
 patch('types/index.d.ts', [
     ("""  bindHover: string | null
 """, """  bindHover: string | null
