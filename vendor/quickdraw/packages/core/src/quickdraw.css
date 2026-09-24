@@ -463,8 +463,10 @@
    map's corner and only shows on hover; folded, the map is just that button. */
 .qd-minimap {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  /* set in by the 7px the fold button overhangs, so open and folded the
+     button keeps the same top and right edges */
+  top: 17px;
+  right: 17px;
   z-index: 36;
   border-radius: 12px;
   background: var(--qd-bar-bg);
@@ -507,7 +509,8 @@
 /* hovering a button lights it up like an active dock tool — a translucent
    tint here would read as the button fading into the map */
 .qd-minimap-toggle:hover, .qd-minimap-fit:hover { background: var(--qd-on-bg); color: var(--qd-on-ink); border-color: transparent; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); }
-/* folded: the fold button is the whole panel */
+/* folded: the fold button is the whole panel, back at the corner */
+.qd-minimap.qd-folded { top: 10px; right: 10px; }
 .qd-minimap.qd-folded .qd-minimap-fit { display: none; }
 .qd-minimap.qd-folded .qd-minimap-toggle { position: static; opacity: 1; width: 30px; height: 30px; border: none; border-radius: 11px; }
 

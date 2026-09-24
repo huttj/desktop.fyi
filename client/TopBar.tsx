@@ -4,6 +4,7 @@ import type { Peer } from '../shared/protocol'
 import type { Me } from '../shared/types'
 import { Avatar } from './Avatar'
 import { nameOf, type People } from './people'
+import { StatsDialog } from './StatsDialog'
 import type { SyncStatus } from './sync'
 import { viewLink } from './viewLink'
 
@@ -35,6 +36,7 @@ export function TopBar({
 }) {
   const [copied, setCopied] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -141,6 +143,16 @@ export function TopBar({
               <a className="TopBar-item" href="/profile">
                 Profile
               </a>
+              <button
+                type="button"
+                className="TopBar-item"
+                onClick={() => {
+                  setStatsOpen(true)
+                  setMenuOpen(false)
+                }}
+              >
+                Stats
+              </button>
               {me.isAdmin && (
                 <a className="TopBar-item" href="/admin">
                   People
@@ -157,6 +169,7 @@ export function TopBar({
           Sign in to add
         </a>
       )}
+      {statsOpen && me && <StatsDialog me={me} onClose={() => setStatsOpen(false)} />}
     </div>
   )
 }

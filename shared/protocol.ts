@@ -34,7 +34,7 @@ export interface Peer {
 export type ClientMessage =
   /** `layer` is where new records land: the owner's id for the desktop itself, or the sender's own id. */
   | { type: 'diff'; diff: WireDiff; layer: string }
-  /** Pin (or unpin) things so they stop aging; the owner or the author may. */
+  /** Keep (or release) things so they stop aging; the owner or the author may. */
   | { type: 'pin'; ids: string[]; pinned: boolean }
   /** Make things fresh again right now. */
   | { type: 'freshen'; ids: string[] }

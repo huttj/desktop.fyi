@@ -691,7 +691,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       ['Resize about the centre', '⌥ / Ctrl drag'], ['Bind arrow to exact point', '⌥ drag'],
     ]},
     { label: 'View', rows: [
-      ['Zoom to fit', '⇧1'], ['Reset zoom', '⇧0'], ['Zoom in / out', '⌘+ / ⌘−'],
+      ['Zoom to fit', '⇧1'], ['Reset zoom', '⇧0 / ⌘0'], ['Zoom in / out', '⌘+ / ⌘−'],
     ]},
     { label: 'Board', rows: [
       ['Delete selection', '⌫'], ['Clear board', '⇧⌘⌫'],

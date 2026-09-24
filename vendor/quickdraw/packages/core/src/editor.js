@@ -731,6 +731,10 @@ export class Editor {
     // blurring the board) must not leave a sticky space-pan behind
     this._onBlur = () => { this.spaceHeld = false; this._syncCursor() }
     c.addEventListener('blur', this._onBlur)
+    // ⌘= / ⌘- / ⌘0 zoom the board, never the page — wherever focus is,
+    // unless it's in a field that isn't ours
+    this._onDocKey = (e) => this._docKey(e)
+    document.addEventListener('keydown', this._onDocKey, true)
     // a browser without overflow: clip may still scroll the board to chase a
     // caret; put it straight back
     this._onScroll = () => { if (c.scrollLeft || c.scrollTop) { c.scrollLeft = 0; c.scrollTop = 0 } }
@@ -2208,6 +2212,24 @@ export class Editor {
     if (e.shiftKey && k === '1') { this.fitContent({ animate: 220 }); return }
     if (e.shiftKey && k === '0') this.resetZoom()
   }
+  // the page-wide zoom keys: the board owns them while it's on the page
+  _docKey(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+    const k = e.key
+    const dir = k === '=' || k === '+' ? 1 : k === '-' || k === '_' ? -1 : k === '0' ? 0 : null
+    if (dir === null) return
+    const t = e.target
+    // someone else's field (an input, a textarea, another editable) keeps its keys
+    if (t && t !== document.body && t !== this.container && !this.container.contains(t)) {
+      const tag = t.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable) return
+    }
+    if (!this.container.isConnected) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (dir === 0) this.resetZoom()
+    else this._zoomCenter(dir > 0 ? 1.25 : 1 / 1.25)
+  }
   _keyUp(e) {
     if (e.key === ' ') { this.spaceHeld = false; this._syncCursor() }
     // ⌥ let go mid-drag: back to a move
@@ -2934,6 +2956,7 @@ export class Editor {
     c.removeEventListener('contextmenu', this._onContextMenu)
     c.removeEventListener('blur', this._onBlur)
     c.removeEventListener('scroll', this._onScroll)
+    document.removeEventListener('keydown', this._onDocKey, true)
     document.fonts?.removeEventListener?.('loadingdone', this._onFonts)
     this._clearPressTimer()
     this.canvas.remove()

@@ -1118,10 +1118,10 @@ img.Avatar {
 
 .FeedPanel {
   position: absolute;
-  top: 54px;
-  left: 8px;
-  bottom: 8px;
-  width: min(380px, calc(100vw - 16px));
+  top: 62px; /* the header pills end at 54px */
+  left: 12px; /* flush with the first pill */
+  bottom: 12px;
+  width: min(380px, calc(100vw - 24px));
   z-index: 44;
   display: flex;
   flex-direction: column;
@@ -1139,13 +1139,13 @@ img.Avatar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 8px 8px 16px;
+  padding: 12px 10px 8px 18px;
   font-size: 14px;
 }
 
 .FeedPanel-body {
   overflow: auto;
-  padding: 0 12px 12px;
+  padding: 0 14px 14px;
 }
 
 .FeedPanel .FeedSection {
@@ -1285,7 +1285,7 @@ img.Avatar {
   display: block;
 }
 
-/* pin / freshen, under the selection */
+/* keep / freshen, under the selection */
 
 .SelectionActions {
   position: absolute;
@@ -1404,4 +1404,46 @@ img.Avatar {
 /* With the feed open the header pills sit on the panel, not above it: no shadow falling onto it. */
 .CanvasRoot:has(.FeedPanel) .BoardHeader :is(.TopBar-button, .BoardHeader-owner) {
   box-shadow: none;
+}
+
+/* stats popup */
+
+.Stats {
+  max-width: 400px;
+}
+
+.Stats-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.Stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.Stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.Stat-n {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.Stat-label {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.3;
 }

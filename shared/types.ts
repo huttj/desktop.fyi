@@ -53,7 +53,7 @@ export interface ItemMeta {
   scoredAt: number
   /** Direct bumps earned since then (capped); the provisional age subtracts these. */
   pending: number
-  /** Pinned things do not age. Set by the owner or the author. */
+  /** Kept things do not age ("Keep" in the UI). Set by the owner or the author. */
   pinned: boolean
 }
 

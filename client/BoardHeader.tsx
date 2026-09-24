@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { HIDE_AT, provisionalAge } from '../shared/freshness'
-import type { DesktopStats, ItemMeta, Me, Person, Profile } from '../shared/types'
+import type { ItemMeta, Me, Person, Profile } from '../shared/types'
 import { api } from './api'
 import { Avatar } from './Avatar'
 import { layersOf, type LayerView } from './freshness'
@@ -86,7 +86,6 @@ function PeoplePicker({
   const [results, setResults] = useState<Person[] | null>(null)
   const [following, setFollowing] = useState<Person[] | null>(null)
   const [followers, setFollowers] = useState<Person[] | null>(null)
-  const [stats, setStats] = useState<DesktopStats | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
   useDismiss(open, () => setOpen(false), ref)
@@ -96,9 +95,8 @@ function PeoplePicker({
     if (!open || !me?.handle) return
     api.following(me.handle).then(setFollowing).catch(() => setFollowing([]))
     api.followers(me.handle).then(setFollowers).catch(() => setFollowers([]))
-    if (me.id === owner || me.isAdmin) api.stats(handle).then(setStats).catch(() => setStats(null))
     setTimeout(() => input.current?.focus(), 0)
-  }, [open, me?.handle, me?.id, me?.isAdmin, owner, handle])
+  }, [open, me?.handle])
 
   // Search as you type, a beat behind.
   useEffect(() => {
@@ -164,27 +162,10 @@ function PeoplePicker({
               </div>
             </div>
             {ownerPerson?.bio && <p className="PeoplePicker-bio">{ownerPerson.bio}</p>}
-            {stats && (
-              <p className="PeoplePicker-stats" title="Only you can see this">
-                <span>{stats.liveNow} here now</span>
-                <span>
-                  {stats.today.views} view{stats.today.views === 1 ? '' : 's'} today
-                </span>
-                <span>
-                  {stats.week.views} this week from {stats.week.people} {stats.week.people === 1 ? 'person' : 'people'}
-                </span>
-                <span>{stats.allTime} all time</span>
-              </p>
-            )}
             {me && !isMine && profile && (
               <button type="button" className={`TopBar-button${profile.isFollowing ? '' : ' TopBar-button--primary'}`} onClick={toggleFollow} disabled={busy}>
                 {profile.isFollowing ? 'Following' : profile.followsYou ? 'Follow back' : 'Follow'}
               </button>
-            )}
-            {isMine && (
-              <a className="TopBar-button" href="/profile">
-                Edit profile
-              </a>
             )}
           </div>
           {me ? (

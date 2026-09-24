@@ -83,7 +83,7 @@ export function daysUntilHidden(age: number): number {
 }
 
 export function describeAge(age: number, pinned = false): string {
-  if (pinned) return 'pinned'
+  if (pinned) return 'kept'
   const v = visibilityAt(age)
   if (v === 'fresh') return 'fresh'
   if (v === 'fading') {
