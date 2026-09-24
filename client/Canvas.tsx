@@ -157,18 +157,19 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   const layerRef = useRef(layerFor)
   layerRef.current = layerFor
 
-  // Adding something while looking at someone else's layer would put it out of sight: widen the view.
+  // Adding something while looking at another layer would put it out of sight: show the layer it landed on.
   useEffect(() => {
     if (!me) return
     return store.listen(
       (diff) => {
         if (!Object.keys(diff.added).length) return
         const target = layerRef.current()
-        if (fresh.current.view !== 'all' && fresh.current.view !== target) setView('all')
+        const v = fresh.current.view
+        if (v !== 'all' && v !== target && !(target === owner && v === 'owner')) setView(target)
       },
       { source: 'user' }
     )
-  }, [store, me, setView])
+  }, [store, me, owner, setView])
 
   const frame = useCallback(
     (ed: Editor) => {

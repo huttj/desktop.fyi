@@ -273,7 +273,7 @@ function LayerPicker({
   const desktopLabel = isMine ? 'Just me' : `Just ${ownerName}`
   const onDesktop = view === owner || view === 'owner'
   // The desktop alone is the resting state: the pill is just the icon then.
-  const label = view === 'all' ? 'Everyone' : onDesktop ? null : `${nameOf(people, view, me?.id)}'s layer`
+  const label = view === 'all' ? 'Everyone' : onDesktop ? null : me && view === me.id ? 'Your layer' : `${nameOf(people, view)}'s layer`
 
   return (
     <div className="TopBar-menu" ref={ref}>
@@ -288,7 +288,7 @@ function LayerPicker({
           </button>
           {layers.map((id) => (
             <button type="button" key={id} className={`TopBar-item${view === id || (id === owner && onDesktop) ? ' TopBar-item--on' : ''}`} onClick={() => (onView(id), setOpen(false))}>
-              {id === owner ? desktopLabel : nameOf(people, id, me?.id)}
+              {id === owner ? desktopLabel : me && id === me.id ? 'Your layer' : `${nameOf(people, id)}'s layer`}
               <span className="TopBar-count">{counts.get(id) ?? 0}</span>
             </button>
           ))}
