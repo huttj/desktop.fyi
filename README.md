@@ -7,7 +7,7 @@ Your desktop, on the web. Paste anything onto an infinite canvas. Friends can ad
 - **Every person has a desktop**, at `/@handle`, backed by a SQLite Durable Object (`worker/BoardDurableObject.ts`). Quickdraw records are stored whole, last-writer-wins, and relayed live over a websocket. The room stamps each record's bookkeeping itself (layer, author, freshness); nothing about that is trusted from clients.
 - **Layers.** The owner's things are on the desktop itself. A visitor's additions go on that visitor's layer. The layer picker shows everyone, the desktop alone, or one person's layer. Copy and paste works between any views (Quickdraw's clipboard payload is plain JSON).
 - **Decay.** Each item has an age in days. Fresh under 1, fading from 1 to 3, hidden at 3 (only its author can see and revive it, with the "show my hidden things" toggle), archived at 7, deleted 30 days after that. Between daily passes everyone sees a provisional age. The rules and the daily pass are pure functions in `shared/freshness.ts` and `shared/decay.ts`, with tests:
-  - moving is a small bump (0.5 d), editing a large one (2 d), capped at 3 d/day together
+  - editing is a large bump (2 d); moving barely counts (0.1 d), since people move things to make space; capped at 3 d/day together
   - adding something next to an item is a medium bump (1 d), inverse square by distance
   - moving next to newer things is a medium bump
   - whatever an item earns spreads to its neighbours, so comments keep their subject alive and the reverse

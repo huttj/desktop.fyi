@@ -16,9 +16,9 @@ export const ARCHIVE_AT = 7
 /** Archived items are kept this long for a data request, then deleted. */
 export const PURGE_AFTER_DAYS = 30
 
-/** Direct bumps, in days of life. */
+/** Direct bumps, in days of life. A move barely counts: people shove things around to make space. */
 export const BUMP = {
-  move: 0.5,
+  move: 0.1,
   edit: 2,
   /** A new item next to you, or you moved next to something newer (scaled by distance). */
   near: 1,
