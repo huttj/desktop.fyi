@@ -5,13 +5,41 @@ import { Canvas } from './Canvas'
 import { Landing } from './Landing'
 import { Login } from './Login'
 import { NamePrompt } from './NamePrompt'
+import { navigate, onNavigate } from './navigate'
 
 type AuthState = { status: 'loading' } | { status: 'signed-out' } | { status: 'signed-in'; me: Me }
 
 const HANDLE_PATH = /^\/@([a-z0-9_]{2,20})\/?$/i
 
+const DESKTOP_PATH = /^\/@[a-z0-9_]{2,20}\/?$/i
+
+/** Follows a link to another desktop in place: the URL changes, the board swaps, nothing reloads. */
+function useInPlaceNavigation() {
+  const [path, setPath] = useState(() => decodeURIComponent(window.location.pathname))
+  useEffect(() => {
+    const onPop = () => setPath(decodeURIComponent(window.location.pathname))
+    const offNav = onNavigate(onPop)
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      const a = (e.target as HTMLElement | null)?.closest('a[href]') as HTMLAnchorElement | null
+      if (!a || a.target === '_blank' || a.hasAttribute('download')) return
+      const url = new URL(a.href, window.location.href)
+      if (url.origin !== window.location.origin || !DESKTOP_PATH.test(decodeURIComponent(url.pathname))) return
+      e.preventDefault()
+      navigate(url.pathname + url.hash)
+    }
+    document.addEventListener('click', onClick)
+    return () => {
+      offNav()
+      document.removeEventListener('click', onClick)
+    }
+  }, [])
+  return path
+}
+
 export function App() {
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
+  const path = useInPlaceNavigation()
 
   const refresh = useCallback(async () => {
     try {
@@ -35,7 +63,6 @@ export function App() {
 
   const updateMe = useCallback((me: Me) => setAuth({ status: 'signed-in', me }), [])
 
-  const path = decodeURIComponent(window.location.pathname)
   const boardHandle = HANDLE_PATH.exec(path)?.[1]?.toLowerCase() ?? null
 
   if (auth.status === 'loading') return <Splash />

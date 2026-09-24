@@ -58,7 +58,7 @@ export function AttributionOverlay({ editor, people, metas, meId }: { editor: Ed
       if (e.pointerType === 'touch') return
       const r = el.getBoundingClientRect()
       const p = editor.screenToPage(e.clientX - r.left, e.clientY - r.top)
-      const id = editor.hitTest(p.x, p.y)?.id ?? null
+      const id = editor.hitTest(p.x, p.y, { inside: true })?.id ?? null
       if (id !== hovered.current) {
         hovered.current = id
         compute()

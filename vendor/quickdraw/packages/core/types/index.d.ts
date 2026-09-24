@@ -390,6 +390,8 @@ export class Editor {
   shapeFilter: ((shape: ShapeRecord) => boolean) | null
   /** Host hook: how opaque a shape draws on screen (0..1). */
   shapeAlpha: ((shape: ShapeRecord) => number) | null
+  /** Host hook: a shape this returns true for cannot be picked up by the pointer (it still draws, its links open, the eraser reaches it). */
+  shapeLocked: ((shape: ShapeRecord) => boolean) | null
 
   on(ev: 'contextmenu', fn: (e: ContextMenuEvent) => void): () => void
   on(ev: EditorEvent, fn: (...args: any[]) => void): () => void
@@ -439,7 +441,7 @@ export class Editor {
   /** While editing: ask for a link with the browser's prompt (⌘K). */
   promptLink(): void
   shapesSorted(): ShapeRecord[]
-  hitTest(px: number, py: number): ShapeRecord | null
+  hitTest(px: number, py: number, opts?: { inside?: boolean; unlocked?: boolean }): ShapeRecord | null
 
   // z order — the selection moves as a block, relative order kept
   bringToFront(): void

@@ -5,6 +5,7 @@ import { api } from './api'
 import { Avatar } from './Avatar'
 import { layersOf, type LayerView } from './freshness'
 import { Linkified } from './Linkified'
+import { navigate } from './navigate'
 import { nameOf, type People } from './people'
 
 /** Top-left chrome: whose desktop this is (and a way to anyone else's), and which layer you are looking at. */
@@ -125,7 +126,11 @@ function PeoplePicker({
   }
 
   const isMine = !!me && !!owner && me.id === owner
-  const go = (p: Person) => p.handle && window.location.assign(`/@${p.handle}`)
+  const go = (p: Person) => {
+    if (!p.handle) return
+    setOpen(false)
+    navigate(`/@${p.handle}`)
+  }
   const row = (p: Person, extra?: string) => (
     <button type="button" key={p.id} className="Person" onClick={() => go(p)}>
       <Avatar id={p.id} name={p.name ?? '?'} avatar={p.avatar} className="Avatar--small" />
@@ -183,6 +188,12 @@ function PeoplePicker({
                 </div>
               ) : (
                 <div className="PeoplePicker-list">
+                  {me.handle && (
+                    <>
+                      {row({ id: me.id, handle: me.handle, name: me.name, avatar: me.avatar }, isMine ? 'this desktop' : 'my desktop')}
+                      <hr className="TopBar-rule" />
+                    </>
+                  )}
                   {following && following.length > 0 && (
                     <>
                       <div className="PeoplePicker-heading">Following</div>

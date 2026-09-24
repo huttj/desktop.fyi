@@ -40,8 +40,8 @@ patch('src/editor.js', [
     return list.sort((a, b) => a.z - b.z || (a.id < b.id ? -1 : 1))"""),
     ("""    for (const s of this.store.shapes()) b = boundsUnion(b, pageBounds(s))""",
      """    for (const s of this.shapesSorted()) b = boundsUnion(b, pageBounds(s))"""),
-    ("""    this.setSelection(this.store.shapes().map((s) => s.id))""",
-     """    this.setSelection(this.shapesSorted().map((s) => s.id))"""),
+    ("""    this.setSelection(this.store.shapes().filter((s) => !this.shapeLocked?.(s)).map((s) => s.id))""",
+     """    this.setSelection(this.shapesSorted().filter((s) => !this.shapeLocked?.(s)).map((s) => s.id))"""),
     # 3. per-shape opacity in the render pass
     ("""      drawShape(ctx, s, {
         theme: this.theme, store: this.store, zoom: cam.z,

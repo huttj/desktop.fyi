@@ -350,6 +350,11 @@ export class BoardDurableObject extends DurableObject<Env> {
         }
         if (existing.state !== 'live') continue // an id that already went to the archive stays there
         if (!existing.is_asset && !this.visibleTo(existing, userId, now)) continue
+        if (existing.author !== userId) {
+          // Not theirs to move or edit: hand the sender the record as it stands.
+          restore.push(JSON.parse(existing.data) as BoardRecord)
+          continue
+        }
         const prev = JSON.parse(existing.data) as BoardRecord
         const kind = classify(prev, rec)
         if (!kind) {
@@ -435,7 +440,7 @@ export class BoardDurableObject extends DurableObject<Env> {
       const put: Record<string, BoardRecord> = {}
       for (const rec of restore) put[rec.id] = rec
       this.send(sender, { type: 'diff', diff: { put, removed: [] } })
-      this.send(sender, { type: 'rejected', reason: 'Only the author or the desktop owner can remove that' })
+      this.send(sender, { type: 'rejected', reason: "That is someone else's: only they can change it" })
     }
     const rows = new Map<string, Row>()
     for (const id of Object.keys(accepted.put)) {

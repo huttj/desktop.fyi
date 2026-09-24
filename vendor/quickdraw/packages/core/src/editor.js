@@ -85,6 +85,10 @@ export class Editor {
     // and how opaque it draws (0..1). Both optional, read on every render.
     this.shapeFilter = null
     this.shapeAlpha = null
+    // Host hook: a shape this returns true for is locked — the pointer never
+    // picks it up (no press, marquee, double-click or context menu), though
+    // it still draws, links still open, and the eraser still reaches it.
+    this.shapeLocked = null
     this.styles = { ...DEFAULT_STYLES, ...(styles || {}) }
     this.geoKind = geoKind || 'rectangle'
     this.tool = 'select' // the pointer, like every desktop drawing tool
@@ -451,7 +455,7 @@ export class Editor {
   }
   selectAll() {
     if (this.tool !== 'select') this.setTool('select')
-    this.setSelection(this.shapesSorted().map((s) => s.id))
+    this.setSelection(this.shapesSorted().filter((s) => !this.shapeLocked?.(s)).map((s) => s.id))
   }
   duplicateSelection(offset = 16) {
     if (!this.selection.size) return
@@ -677,9 +681,10 @@ export class Editor {
   // inside a group's frame, as a hit — the smallest such body wins, so a
   // box inside a box picks the inner one. The eraser leaves that off: a
   // sweep through an empty box shouldn't take the box.
-  hitTest(px, py, { inside = false } = {}) {
+  hitTest(px, py, { inside = false, unlocked = false } = {}) {
     const tol = 8 / this.camera.z
-    const list = this.shapesSorted()
+    const lockedFn = unlocked ? this.shapeLocked : null
+    const list = lockedFn ? this.shapesSorted().filter((s) => !lockedFn(s)) : this.shapesSorted()
     for (let i = list.length - 1; i >= 0; i--) {
       if (hitShape(list[i], px, py, tol, this.store)) return list[i]
     }
@@ -890,7 +895,7 @@ export class Editor {
           x: Math.min(ss.origin.x, p.x), y: Math.min(ss.origin.y, p.y),
           w: Math.abs(p.x - ss.origin.x), h: Math.abs(p.y - ss.origin.y),
         }
-        const hits = this._withGroups(this.shapesSorted().filter((sh) => marqueeHits(sh, ss.rect)).map((sh) => sh.id))
+        const hits = this._withGroups(this.shapesSorted().filter((sh) => marqueeHits(sh, ss.rect) && !this.shapeLocked?.(sh)).map((sh) => sh.id))
         this.setSelection(ss.additive ? [...new Set([...ss.base, ...hits])] : hits)
         return
       }
@@ -1607,7 +1612,7 @@ export class Editor {
       }
       return
     }
-    const hit = this.hitTest(p.x, p.y, { inside: true })
+    const hit = this.hitTest(p.x, p.y, { inside: true, unlocked: true })
     // a press outside the focused group steps back out of it
     if (this.focusedGroup && hit?.groupId !== this.focusedGroup) this.focusedGroup = null
     if (hit) {
@@ -1955,7 +1960,7 @@ export class Editor {
   _openContextMenu(s) {
     this._commitText()
     const p = this.screenToPage(s.x, s.y)
-    const hit = this.hitTest(p.x, p.y, { inside: true })
+    const hit = this.hitTest(p.x, p.y, { inside: true, unlocked: true })
     if (hit) {
       if (this.tool !== 'select') this.setTool('select')
       if (!this.selection.has(hit.id)) this.setSelection(this._withGroups([hit.id]))
@@ -2012,7 +2017,7 @@ export class Editor {
       return
     }
     const p = this.screenToPage(s.x, s.y)
-    const hit = this.hitTest(p.x, p.y, { inside: true })
+    const hit = this.hitTest(p.x, p.y, { inside: true, unlocked: true })
     if (hit && this._linkAt(hit, p)) { this._syncCursor('pointer'); return }
     this._syncCursor(hit && this.selection.has(hit.id) ? 'move' : null)
   }
@@ -2137,7 +2142,7 @@ export class Editor {
     if (this.readonly || this.tool !== 'select') return
     const s = this._evPoint(e)
     const p = this.screenToPage(s.x, s.y)
-    const hit = this.hitTest(p.x, p.y, { inside: true })
+    const hit = this.hitTest(p.x, p.y, { inside: true, unlocked: true })
     if (hit) {
       if (hit.groupId && hit.groupId !== this.focusedGroup) {
         // dive into the group: from here its members select one at a time

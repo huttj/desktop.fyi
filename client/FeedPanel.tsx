@@ -93,14 +93,20 @@ function titleOf(items: FeedItem[]): string | null {
 }
 
 /** A panel beside the desktop: what the people you follow made lately, and what is about to disappear. */
+/** The last feed fetched, so the panel comes back filled when the desktop changes. */
+let lastFeed: FeedData | null = null
+
 export function FeedPanel({ me, theme, onClose }: { me: Me; theme: 'light' | 'dark'; onClose: () => void }) {
-  const [feed, setFeed] = useState<FeedData | null>(null)
+  const [feed, setFeed] = useState<FeedData | null>(lastFeed)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api
       .feed()
-      .then(setFeed)
+      .then((f) => {
+        lastFeed = f
+        setFeed(f)
+      })
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load the feed'))
   }, [])
 

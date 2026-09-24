@@ -8,6 +8,8 @@ export type LayerView = 'all' | 'owner' | string
 export interface FreshnessState {
   metas: Map<string, ItemMeta>
   viewerId: string | null
+  /** The desktop's owner, once known: their layer shows under every other layer. */
+  owner: string | null
   view: LayerView
   /** The author's toggle: also draw my own hidden things, faintly. */
   showHidden: boolean
@@ -24,7 +26,8 @@ export function installFreshness(editor: Editor, state: FreshnessState): () => v
     const meta = state.metas.get(shape.id)
     // A record the room has not stamped yet (just made here) is fresh and on our layer.
     if (!meta) return 1
-    if (state.view !== 'all' && state.view !== 'owner' && meta.layer !== state.view) return 0
+    // a person's layer sits on the desktop itself: both show
+    if (state.view !== 'all' && state.view !== 'owner' && meta.layer !== state.view && meta.layer !== state.owner) return 0
     const age = provisionalAge(meta, Date.now())
     const v = visibilityAt(age)
     if (v === 'archived') return 0
@@ -36,12 +39,18 @@ export function installFreshness(editor: Editor, state: FreshnessState): () => v
   }
   editor.shapeFilter = (s) => decide(s) > 0
   editor.shapeAlpha = decide
+  // other people's things are theirs alone to move or edit
+  editor.shapeLocked = (s) => {
+    const meta = state.metas.get(s.id)
+    return !!meta && meta.by !== state.viewerId
+  }
   editor.requestRender()
   const timer = window.setInterval(() => editor.requestRender(), 60_000)
   return () => {
     clearInterval(timer)
     editor.shapeFilter = null
     editor.shapeAlpha = null
+    editor.shapeLocked = null
     editor.requestRender()
   }
 }

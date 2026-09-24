@@ -66,7 +66,11 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   const [showHidden, setShowHiddenState] = useState(false)
   const [metaVersion, setMetaVersion] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
-  const [feedOpen, setFeedOpen] = useState(() => !!me && window.location.hash === '#feed')
+  const [feedOpen, setFeedOpenState] = useState(() => !!me && (window.location.hash === '#feed' || readPref('dfyi:feed', ['1', '0'], '0') === '1'))
+  const setFeedOpen = useCallback((open: boolean) => {
+    setFeedOpenState(open)
+    writePref('dfyi:feed', open ? '1' : '0')
+  }, [])
   const [dialog, setDialog] = useState<Dialog | null>(() => {
     if (!me) return null
     const h = window.location.hash
@@ -76,7 +80,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   const [watching, setWatching] = useState<string | null>(null)
 
   // The room's bookkeeping, read by the render hooks on every frame.
-  const fresh = useRef<FreshnessState>({ metas: new Map<string, ItemMeta>(), viewerId: me?.id ?? null, view: 'owner', showHidden: false })
+  const fresh = useRef<FreshnessState>({ metas: new Map<string, ItemMeta>(), viewerId: me?.id ?? null, owner: null, view: 'owner', showHidden: false })
 
   const initialView = useMemo(() => parseView(window.location.hash), [])
 
@@ -192,6 +196,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       onLaser: (strokes) => editorRef.current?.setRemoteScribbles(strokes),
       onInit: (info) => {
         setOwner(info.owner)
+        fresh.current.owner = info.owner
         if (fresh.current.view === 'owner') {
           fresh.current.view = info.owner
           setViewState(info.owner)
