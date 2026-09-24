@@ -47,7 +47,7 @@ export function localBounds(shape) {
     }
     case 'note': {
       const l = noteLayout(shape)
-      return { x: 0, y: 0, w: NOTE_W * (p.scale || 1), h: l.boxH * (p.scale || 1) }
+      return { x: 0, y: 0, w: l.boxW * (p.scale || 1), h: l.boxH * (p.scale || 1) }
     }
     case 'image':
       return { x: 0, y: 0, w: p.w, h: p.h }
@@ -239,9 +239,12 @@ export function noteLayout(shape) {
   const fontSize = NOTE_FONT_SIZES[p.size]
   const font = FONTS[p.font || 'draw']
   const lh = fontSize * 1.35
-  const lines = wrapLines(p.text, font, fontSize, NOTE_W - NOTE_PAD * 2, p.marks)
+  // the sticky's box: props.w / props.h when it's been resized, else the
+  // classic square — and never shorter than its text needs
+  const boxW = p.w || NOTE_W
+  const lines = wrapLines(p.text, font, fontSize, boxW - NOTE_PAD * 2, p.marks)
   const textH = lines.length * lh
-  const l = { lines, fontSize, font, lh, textH, boxH: Math.max(NOTE_W, textH + NOTE_PAD * 2) }
+  const l = { lines, fontSize, font, lh, textH, boxW, boxH: Math.max(p.h || boxW, textH + NOTE_PAD * 2) }
   layoutCache.set(p, l)
   return l
 }
@@ -280,6 +283,64 @@ export function mapMarks(marks, oldText, newText) {
   return marks.map((m) => ({ ...m, from: map(m.from), to: map(m.to) })).filter((m) => m.to > m.from)
 }
 
+// ---- editing marks ---------------------------------------------------------
+// Marks are kept as sorted, non-overlapping runs, adjacent equal runs merged.
+const MARK_KEYS = ['b', 'i', 'u', 's', 'code', 'hl', 'href']
+const sameStyle = (a, b) => MARK_KEYS.every((k) => (a[k] ?? false) === (b[k] ?? false))
+const styleOf = (m) => { const o = {}; for (const k of MARK_KEYS) if (m[k]) o[k] = m[k]; return o }
+export function normalizeMarks(marks) {
+  const out = []
+  for (const m of [...(marks || [])].sort((x, y) => x.from - y.from)) {
+    if (m.to <= m.from || !Object.keys(styleOf(m)).length) continue
+    const last = out[out.length - 1]
+    if (last && last.to >= m.from && sameStyle(last, m)) last.to = Math.max(last.to, m.to)
+    else out.push({ from: m.from, to: m.to, ...styleOf(m) })
+  }
+  return out
+}
+// the style at a text position (the run containing it), {} when plain
+export function markAt(marks, pos) {
+  for (const m of marks || []) if (pos >= m.from && pos < m.to) return styleOf(m)
+  return {}
+}
+// does every character of [from, to) carry the key?
+export function hasMark(marks, from, to, key) {
+  if (to <= from) return !!markAt(marks, from)[key]
+  let pos = from
+  for (const m of marks || []) {
+    if (m.to <= pos || m.from >= to) continue
+    if (m.from > pos || !m[key]) return false
+    pos = Math.min(m.to, to)
+    if (pos >= to) return true
+  }
+  return false
+}
+// [from, to) with the key set (to `value`, true by default) or cleared;
+// runs are split at the edges so the rest of the text keeps its marks
+export function setMark(marks, from, to, key, on, value = true) {
+  if (to <= from) return normalizeMarks(marks)
+  const out = []
+  for (const m of marks || []) {
+    if (m.to <= from || m.from >= to) { out.push(m); continue }
+    if (m.from < from) out.push({ ...m, to: from })
+    if (m.to > to) out.push({ ...m, from: to })
+    const mid = { ...m, from: Math.max(m.from, from), to: Math.min(m.to, to) }
+    if (on) mid[key] = value; else delete mid[key]
+    out.push(mid)
+  }
+  if (on) {
+    // the stretches of [from, to) no run covered get a run of their own
+    let pos = from
+    for (const m of normalizeMarks(marks)) {
+      if (m.to <= from || m.from >= to) continue
+      if (m.from > pos) out.push({ from: pos, to: m.from, [key]: value })
+      pos = Math.max(pos, m.to)
+    }
+    if (pos < to) out.push({ from: pos, to, [key]: value })
+  }
+  return normalizeMarks(out)
+}
+
 // where the text of a text/note/geo shape sits in its local frame:
 // { lines, fontSize, font, lh, top, marks, text, left(line), scale }
 function textBlock(shape) {
@@ -292,8 +353,10 @@ function textBlock(shape) {
   }
   if (shape.type === 'note') {
     const l = noteLayout(shape)
+    // notes centre their text unless told otherwise (older notes carry no align)
+    const align = p.align || 'middle'
     return { ...l, top: Math.max(NOTE_PAD, l.boxH / 2 - l.textH / 2), marks: p.marks, text: p.text, scale: p.scale || 1,
-      left: (line) => NOTE_W / 2 - line.w / 2 }
+      left: (line) => (align === 'start' ? NOTE_PAD : align === 'end' ? l.boxW - NOTE_PAD - line.w : l.boxW / 2 - line.w / 2) }
   }
   if (shape.type === 'geo') {
     const l = geoLabelLayout(shape)
@@ -650,7 +713,7 @@ export function drawShape(ctx, shape, opts) {
       ctx.scale(s, s)
       ctx.fillStyle = col.note
       ctx.beginPath()
-      ctx.roundRect(0, 0, NOTE_W, l.boxH, 6)
+      ctx.roundRect(0, 0, l.boxW, l.boxH, 6)
       ctx.shadowColor = 'rgba(20, 16, 8, 0.22)'
       ctx.shadowBlur = 10
       ctx.shadowOffsetY = 4
@@ -829,8 +892,9 @@ export function scaleShape(shape, sx, sy, { handle } = {}) {
       return { ...shape, props: { ...p, scale: Math.max(0.2, (p.scale || 1) * sx), ...(p.autosize === false && p.w ? { w: p.w * sx } : {}) } }
     }
     case 'note': {
-      const s = Math.sqrt(Math.abs(sx * sy))
-      return { ...shape, props: { ...p, scale: Math.max(0.3, (p.scale || 1) * s) } }
+      // the box resizes freely; the type keeps its size and rewraps
+      const lay = noteLayout(shape)
+      return { ...shape, props: { ...p, w: Math.max(60, lay.boxW * sx), h: Math.max(40, lay.boxH * sy) } }
     }
     default:
       return shape

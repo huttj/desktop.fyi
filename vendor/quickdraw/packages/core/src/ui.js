@@ -44,6 +44,7 @@ const ICONS = {
   transparent: SVG('<rect width="18" height="18" x="3" y="3" rx="2"/><rect x="4" y="4" width="8" height="8" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="12" y="12" width="8" height="8" fill="currentColor" fill-opacity=".22" stroke="none"/>'),
   vector: SVG('<path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/><path d="m2.3 2.3 7.286 7.286"/><circle cx="11" cy="11" r="2"/>'),
   map: SVG('<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>'),
+  link: SVG('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'),
   minimize: SVG('<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>'),
   copy: SVG('<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/>'),
   fit: SVG('<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>'),
@@ -696,6 +697,10 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       ['Delete selection', '⌫'], ['Clear board', '⇧⌘⌫'],
       ['Edit / finish text', 'Enter'], ['Cancel / deselect', 'Esc'],
     ]},
+    { label: 'While editing text', rows: [
+      ['Bold / italic / underline', '⌘B / ⌘I / ⌘U'], ['Strikethrough', '⇧⌘X'],
+      ['Code', '⌘E'], ['Highlight', '⇧⌘H'], ['Link', '⌘K'], ['Finish', '⌘Enter'],
+    ]},
     { label: 'Help', rows: [['Keyboard shortcuts', '?']] },
   ]
   const buildHelp = () => {
@@ -743,6 +748,53 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     refresh()
   }
   editor.on('help', toggleHelp)
+
+  // ---- text formatting bar -------------------------------------------------
+  // While text is being edited, a small bar floats above it: bold, italic,
+  // underline, strike, code, highlight, link. It mirrors the style at the
+  // caret and applies to the selection (or to what's typed next).
+  const FMT = [
+    ['b', '<b>B</b>', 'Bold — ⌘B'], ['i', '<i>I</i>', 'Italic — ⌘I'], ['u', '<u>U</u>', 'Underline — ⌘U'],
+    ['s', '<s>S</s>', 'Strikethrough — ⇧⌘X'], ['code', '&lt;/&gt;', 'Code — ⌘E'], ['hl', '<span class="qd-fmt-hl">ab</span>', 'Highlight — ⇧⌘H'],
+    ['href', ICONS.link, 'Link — ⌘K'],
+  ]
+  const fmt = el('div', 'qd-fmt')
+  const fmtBtns = new Map()
+  for (const [key, html, tip] of FMT) {
+    const b = el('button', 'qd-fmt-btn')
+    b.innerHTML = html
+    b.title = tip
+    b.dataset.mark = key
+    // the textarea keeps focus: a mousedown here must not blur it
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation() })
+    b.addEventListener('mousedown', (e) => e.preventDefault())
+    b.addEventListener('click', (e) => {
+      e.stopPropagation()
+      key === 'href' ? editor.promptLink() : editor.toggleMark(key)
+    })
+    fmt.appendChild(b)
+    fmtBtns.set(key, b)
+  }
+  ui.appendChild(fmt)
+  const layoutFmt = () => {
+    const ed = editor.editing
+    if (!ed) { fmt.style.display = 'none'; return }
+    fmt.style.display = ''
+    const st = editor.editingStyle() || {}
+    for (const [key, b] of fmtBtns) b.classList.toggle('on', !!st[key])
+    // above the textarea, kept inside the frame
+    const ta = ed.textarea
+    const rr = root.getBoundingClientRect()
+    const tr = ta.getBoundingClientRect()
+    const w = fmt.offsetWidth || 240, h = fmt.offsetHeight || 34
+    let left = tr.left - rr.left + tr.width / 2 - w / 2
+    left = Math.max(8, Math.min(left, rr.width - w - 8))
+    let top = tr.top - rr.top - h - 10
+    if (top < 8) top = tr.bottom - rr.top + 10
+    fmt.style.left = left + 'px'
+    fmt.style.top = top + 'px'
+  }
+  layoutFmt()
 
   // ---- minimap -------------------------------------------------------------
   // A small map of the whole drawing in the top-right corner: shapes as
@@ -937,6 +989,8 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     editor.on('contextmenu', ({ x, y }) => openContextMenu(x, y)),
     editor.on('change', requestMinimap),
     editor.on('camera', requestMinimap),
+    editor.on('edit', layoutFmt),
+    editor.on('camera', layoutFmt),
     editor.on('theme', requestMinimap),
   ]
 

@@ -1,5 +1,5 @@
 import type { BoardRecord, Diff, ScribbleStroke, Store } from '@quickdrawjs/core'
-import type { ClientMessage, Cursor, Peer, ServerMessage, WireDiff } from '../shared/protocol'
+import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
 import type { ItemMeta } from '../shared/types'
 import { uploadDataUrl } from './uploads'
 
@@ -10,6 +10,8 @@ export interface SyncOptions {
   canEdit: boolean
   /** Which layer new records land on: read at send time so a change of view applies at once. */
   layer(): string
+  /** The current viewport, announced on every (re)connect. */
+  viewport?(): Viewport | null
   onStatus(status: SyncStatus): void
   onPeers(peers: Peer[]): void
   onLaser(strokes: ScribbleStroke[]): void
@@ -53,6 +55,9 @@ export class BoardSync {
   private pendingCursor: Cursor | null | undefined
   private laserTimer = 0
   private pendingLaser: ScribbleStroke[] | undefined
+  private viewTimer = 0
+  private pendingView: Viewport | null | undefined
+  private lastView: Viewport | null = null
 
   sessionId: string | null = null
 
@@ -85,6 +90,7 @@ export class BoardSync {
     clearInterval(this.pingTimer)
     clearTimeout(this.cursorTimer)
     clearTimeout(this.laserTimer)
+    clearTimeout(this.viewTimer)
     const ws = this.ws
     this.ws = null
     if (!ws) return
@@ -96,10 +102,34 @@ export class BoardSync {
     }
   }
 
+  // ---- freshness ----
+
+  pin(ids: string[], pinned: boolean) {
+    if (this.opts.canEdit && ids.length) this.send({ type: 'pin', ids, pinned })
+  }
+
+  freshen(ids: string[]) {
+    if (this.opts.canEdit && ids.length) this.send({ type: 'freshen', ids })
+  }
+
   // ---- presence ----
 
+  /** Everyone, viewers included, shows where they are looking; the room refuses only edits. */
+  sendViewport(viewport: Viewport | null) {
+    this.pendingView = viewport
+    if (this.viewTimer) return
+    this.viewTimer = window.setTimeout(() => {
+      this.viewTimer = 0
+      const v = this.pendingView
+      this.pendingView = undefined
+      if (v === undefined) return
+      if (v && this.lastView && Math.abs(v.x - this.lastView.x) < 1 && Math.abs(v.y - this.lastView.y) < 1 && Math.abs(v.w - this.lastView.w) < 1 && Math.abs(v.h - this.lastView.h) < 1) return
+      this.lastView = v
+      this.send({ type: 'view', viewport: v })
+    }, 90)
+  }
+
   sendCursor(cursor: Cursor | null) {
-    if (!this.opts.canEdit) return
     this.pendingCursor = cursor
     if (this.cursorTimer) return
     this.cursorTimer = window.setTimeout(() => {
@@ -216,6 +246,8 @@ export class BoardSync {
         this.peers = new Map(msg.peers.map((p) => [p.sessionId, p]))
         this.opts.onPeers([...this.peers.values()])
         this.opts.onStatus('online')
+        this.lastView = null
+        if (this.pendingView === undefined && this.opts.viewport) this.sendViewport(this.opts.viewport())
         this.opts.onReady(!this.hadReady)
         this.hadReady = true
         return

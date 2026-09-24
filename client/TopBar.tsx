@@ -63,17 +63,30 @@ export function TopBar({
     setCopied(true)
   }
 
-  const others = [...new Set(peers.map((p) => p.userId))].filter((id) => id !== me?.id)
-  const whoIsHere = [me ? 'You' : null, ...others.map((id) => nameOf(people, id))].filter(Boolean).join(', ')
+  // Other people (one avatar each, however many windows), plus visitors who are not signed in.
+  const others = [...new Set(peers.map((p) => p.userId).filter((id): id is string => !!id))].filter((id) => id !== me?.id)
+  const visitors = peers.filter((p) => !p.userId).length
+  const myWindows = me ? peers.filter((p) => p.userId === me.id).length : 0
+  const here = others.length + visitors
+  const whoIsHere = [
+    ...others.map((id) => nameOf(people, id)),
+    visitors ? `${visitors} visitor${visitors === 1 ? '' : 's'}` : null,
+    myWindows ? `you in ${myWindows} other window${myWindows === 1 ? '' : 's'}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ')
 
   return (
     <div className="TopBar" onPointerDown={(e) => e.stopPropagation()}>
-      {others.length > 0 && (
-        <div className="TopBar-people" title={whoIsHere}>
-          {others.slice(0, 5).map((id) => (
+      {here > 0 && (
+        <div className="TopBar-people TopBar-button" title={whoIsHere}>
+          {others.slice(0, 4).map((id) => (
             <Avatar key={id} id={id} name={nameOf(people, id)} avatar={people.get(id)?.avatar ?? null} />
           ))}
-          {others.length > 5 && <span className="Avatar Avatar--more">+{others.length - 5}</span>}
+          {others.length > 4 && <span className="Avatar Avatar--more">+{others.length - 4}</span>}
+          <span className="TopBar-count TopBar-count--here">
+            <EyeIcon /> {here}
+          </span>
         </div>
       )}
       {me && (
@@ -102,12 +115,12 @@ export function TopBar({
         <div className="TopBar-menu" ref={menuRef}>
           <button
             type="button"
-            className={`TopBar-button TopBar-me TopBar-status--${status}`}
+            className={`TopBar-button TopBar-me${status === 'offline' ? ' TopBar-button--offline' : ''}`}
             onClick={() => setMenuOpen((o) => !o)}
             aria-expanded={menuOpen}
             title={STATUS_LABEL[status]}
           >
-            <Avatar id={me.id} name={me.name ?? '?'} avatar={me.avatar} className="Avatar--me" />
+            <Avatar id={me.id} name={me.name ?? '?'} avatar={me.avatar} />
             <span>{me.name}</span>
           </button>
           {menuOpen && (
@@ -140,12 +153,9 @@ export function TopBar({
           )}
         </div>
       ) : (
-        <>
-          <span className={`TopBar-status TopBar-status--${status}`} title={STATUS_LABEL[status]} />
-          <a className="TopBar-button TopBar-button--primary" href="/login">
-            Sign in to add
-          </a>
-        </>
+        <a className={`TopBar-button TopBar-button--primary${status === 'offline' ? ' TopBar-button--offline' : ''}`} href="/login" title={STATUS_LABEL[status]}>
+          Sign in to add
+        </a>
       )}
     </div>
   )
@@ -168,12 +178,23 @@ function CheckIcon() {
   )
 }
 
+function EyeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
 function FeedIcon() {
+  // a page of entries: a picture beside lines, twice
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 11a9 9 0 0 1 9 9" />
-      <path d="M4 4a16 16 0 0 1 16 16" />
-      <circle cx="5" cy="19" r="1" />
+      <rect x="3" y="4" width="6" height="6" rx="1.5" />
+      <path d="M13 5h8M13 9h6" />
+      <rect x="3" y="14" width="6" height="6" rx="1.5" />
+      <path d="M13 15h8M13 19h6" />
     </svg>
   )
 }

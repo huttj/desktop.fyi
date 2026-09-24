@@ -53,6 +53,8 @@ export interface ItemMeta {
   scoredAt: number
   /** Direct bumps earned since then (capped); the provisional age subtracts these. */
   pending: number
+  /** Pinned things do not age. Set by the owner or the author. */
+  pinned: boolean
 }
 
 export interface FeedItem {
@@ -75,4 +77,12 @@ export interface Feed {
 
 export interface ApiError {
   error: string
+}
+
+/** Who has been looking at a desktop. Only its owner (or an admin) may see this. */
+export interface DesktopStats {
+  liveNow: number
+  today: { views: number; people: number }
+  week: { views: number; people: number }
+  allTime: number
 }

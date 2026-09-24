@@ -7,7 +7,7 @@
 import { SIZES, HIGHLIGHT_ALPHA, HIGHLIGHT_SCALE, HIGHLIGHT_PLAIN, GRID_STEP, GRID_MAJOR } from './palette.js'
 import {
   localBounds, pageBounds, textLayout, noteLayout, geoLabelLayout, lineBaseline, lineRuns,
-  buildGeoPath, buildInkPath, dashFor, imageFrame, urlBadgeAt, NOTE_W, NOTE_PAD, SEMI,
+  buildGeoPath, buildInkPath, dashFor, imageFrame, urlBadgeAt, NOTE_PAD, SEMI,
 } from './shapes.js'
 import { boundsUnion, boundsExpand, traceSmooth } from './geometry.js'
 
@@ -158,8 +158,8 @@ export function shapeToSvg(shape, { theme, store, defs }) {
       defs.set('qd-note-shadow', tag('filter', { id: 'qd-note-shadow', x: '-20%', y: '-20%', width: '140%', height: '140%' },
         tag('feDropShadow', { dx: 0, dy: 4, stdDeviation: 5, 'flood-color': 'rgba(20,16,8,0.22)' })))
       body = tag('g', { transform: s !== 1 ? `scale(${n(s)})` : null },
-        tag('rect', { width: NOTE_W, height: n(l.boxH), rx: 6, fill: col.note, filter: 'url(#qd-note-shadow)' }) +
-        textBlockSvg(theme, { ...l, marks: p.marks, text: p.text, left: (line) => NOTE_W / 2 - line.w / 2 }, theme.noteText, Math.max(NOTE_PAD, l.boxH / 2 - l.textH / 2)) +
+        tag('rect', { width: n(l.boxW), height: n(l.boxH), rx: 6, fill: col.note, filter: 'url(#qd-note-shadow)' }) +
+        textBlockSvg(theme, { ...l, marks: p.marks, text: p.text, left: (line) => l.boxW / 2 - line.w / 2 }, theme.noteText, Math.max(NOTE_PAD, l.boxH / 2 - l.textH / 2)) +
         urlBadgeSvg(theme, shape, theme.noteText))
       break
     }

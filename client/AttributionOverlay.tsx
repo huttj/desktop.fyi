@@ -12,6 +12,7 @@ interface Info {
   editedBy: string | null
   editedAt: number
   age: number
+  pinned: boolean
 }
 
 /**
@@ -43,6 +44,7 @@ export function AttributionOverlay({ editor, people, metas, meId }: { editor: Ed
           editedBy: meta.editedBy !== meta.by ? meta.editedBy : null,
           editedAt: meta.editedAt,
           age: Math.round(provisionalAge(meta, Date.now()) * 100) / 100,
+          pinned: meta.pinned,
         }
       }
       const key = next ? JSON.stringify(next) : ''
@@ -97,7 +99,7 @@ export function AttributionOverlay({ editor, people, metas, meId }: { editor: Ed
           <span className="Attribution-time"> · {relativeTime(info.editedAt)}</span>
         </span>
       )}
-      <span className={`Attribution-edit Attribution-age Attribution-age--${v}`}>{describeAge(info.age)}</span>
+      <span className={`Attribution-edit Attribution-age Attribution-age--${info.pinned ? 'pinned' : v}`}>{describeAge(info.age, info.pinned)}</span>
     </div>
   )
 }

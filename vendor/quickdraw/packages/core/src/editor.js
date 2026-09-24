@@ -8,7 +8,7 @@ import { themeOf, SIZES, FONT_SIZES, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GR
 import {
   localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, imageFrame,
-  mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout,
+  mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark,
 } from './shapes.js'
 import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith } from './geometry.js'
 import { sceneToSvg } from './svg.js'
@@ -387,7 +387,7 @@ export class Editor {
         dash: ['draw', 'geo', 'arrow', 'line'],
         fill: ['geo'],
         font: ['text', 'note', 'geo'],
-        align: ['text'],
+        align: ['text', 'note'],
       }
       this.store.transact(() => {
         for (const id of this.selection) {
@@ -406,9 +406,11 @@ export class Editor {
       const s = this.store.get(id)
       if (!s) continue
       for (const k of ['color', 'size', 'dash', 'fill', 'font', 'align']) {
-        if (s.props[k] === undefined) continue
-        if (!(k in out)) out[k] = s.props[k]
-        else if (out[k] !== s.props[k]) out[k] = null
+        // a note without an align is a centred note
+        const v = k === 'align' && s.type === 'note' ? (s.props.align ?? 'middle') : s.props[k]
+        if (v === undefined) continue
+        if (!(k in out)) out[k] = v
+        else if (out[k] !== v) out[k] = null
       }
     }
     return { ...this.styles, ...out }
@@ -1244,7 +1246,11 @@ export class Editor {
     ta.value = field === 'label' ? shape.props.label || '' : shape.props.text || ''
     ta.spellcheck = false
     this.container.appendChild(ta)
-    this.editing = { id, field, textarea: ta, fresh }
+    // pending: marks toggled with nothing selected — they land on whatever
+    // is typed next at that spot, and are forgotten when the caret moves
+    this.editing = { id, field, textarea: ta, fresh, pending: {}, caret: ta.selectionStart }
+    const ed = this.editing
+    const mk = field === 'label' ? 'labelMarks' : 'marks'
     const sync = () => {
       const cur = this.store.get(id)
       if (!cur) return
@@ -1257,24 +1263,50 @@ export class Editor {
         const at2 = normalizeText(before).length
         ta.setSelectionRange(at2, at2)
       }
+      const old = String((field === 'label' ? cur.props.label : cur.props.text) || '')
       const patch = field === 'label' ? { label: ta.value } : { text: ta.value }
-      // marks ride along with the edit (see mapMarks)
-      const mk = field === 'label' ? 'labelMarks' : 'marks'
-      if (cur.props[mk]?.length) {
-        const mapped = mapMarks(cur.props[mk], field === 'label' ? cur.props.label : cur.props.text, ta.value)
-        patch[mk] = mapped.length ? mapped : undefined
+      // marks ride along with the edit (see mapMarks), and pending ones land
+      // on what was just typed
+      let marks = cur.props[mk]?.length ? mapMarks(cur.props[mk], old, ta.value) : []
+      const keys = Object.keys(ed.pending)
+      if (keys.length && ta.value.length > old.length) {
+        let a = 0
+        while (a < old.length && a < ta.value.length && old[a] === ta.value[a]) a++
+        const b2 = a + (ta.value.length - old.length)
+        for (const k of keys) marks = setMark(marks, a, b2, k, ed.pending[k])
       }
+      patch[mk] = marks.length ? marks : undefined
       this.store.update(id, { props: patch })
+      ed.caret = ta.selectionStart
       this._layoutTextEditor()
+      this.emit('edit')
     }
     ta.addEventListener('input', sync)
+    // the caret wandering off drops pending marks; the toolbar follows the selection
+    const onCaret = () => {
+      if (ta.selectionStart !== ed.caret || ta.selectionEnd !== ta.selectionStart) {
+        if (Object.keys(ed.pending).length) ed.pending = {}
+        ed.caret = ta.selectionStart
+      }
+      this.emit('edit')
+    }
+    for (const evn of ['keyup', 'mouseup', 'select', 'touchend']) ta.addEventListener(evn, onCaret)
     ta.addEventListener('keydown', (e) => {
       e.stopPropagation()
       if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
         e.preventDefault()
         this._commitText()
         this.container.focus({ preventScroll: true })
+        return
       }
+      // formatting, tldraw's keys: ⌘B / ⌘I / ⌘U, ⇧⌘X strike, ⌘E code,
+      // ⇧⌘H highlight, ⌘K link
+      const meta = e.metaKey || e.ctrlKey
+      if (!meta || e.altKey) return
+      const k = e.key.toLowerCase()
+      const key = e.shiftKey ? { x: 's', h: 'hl' }[k] : { b: 'b', i: 'i', u: 'u', e: 'code' }[k]
+      if (key) { e.preventDefault(); this.toggleMark(key); return }
+      if (k === 'k' && !e.shiftKey) { e.preventDefault(); this.promptLink() }
     })
     ta.addEventListener('pointerdown', (e) => e.stopPropagation())
     ta.addEventListener('blur', () => this._commitText())
@@ -1299,9 +1331,9 @@ export class Editor {
       // text block, so committing doesn't jump the text — 20 = NOTE_PAD
       const yStart = Math.max(20, lay.boxH / 2 - lay.textH / 2)
       pos = this.pageToScreen(shape.x + 20 * s, shape.y + yStart * s)
-      w = (NOTE_W - 40) * s
+      w = (lay.boxW - 40) * s
       h = lay.textH * s
-      align = 'center'
+      align = shape.props.align === 'start' ? 'left' : shape.props.align === 'end' ? 'right' : 'center'
       ta.style.font = `500 ${lay.fontSize * s * z}px ${lay.font}`
       ta.style.lineHeight = lay.lh * s * z + 'px'
     } else if (shape.type === 'geo' && ed.field === 'label') {
@@ -1332,6 +1364,77 @@ export class Editor {
     ta.style.height = h * z + 'px'
     ta.style.textAlign = align
     ta.style.color = shape.type === 'note' ? this.theme.noteText : col.stroke
+  }
+  // ---- formatting while editing --------------------------------------------
+  // the style at the caret (or across the selection), pending toggles included
+  editingStyle() {
+    const ed = this.editing
+    if (!ed) return null
+    const cur = this.store.get(ed.id)
+    if (!cur) return null
+    const marks = cur.props[ed.field === 'label' ? 'labelMarks' : 'marks'] || []
+    const ta = ed.textarea
+    const s = ta.selectionStart, e = ta.selectionEnd
+    const st = {}
+    for (const k of ['b', 'i', 'u', 's', 'code', 'hl', 'href']) {
+      st[k] = s === e ? markAt(marks, Math.max(0, s - 1))[k] || false : hasMark(marks, s, e, k) ? (k === 'href' ? markAt(marks, s).href : true) : false
+    }
+    for (const k of Object.keys(ed.pending)) st[k] = ed.pending[k]
+    return st
+  }
+  // toggle a mark (b, i, u, s, code, hl) over the selection; with nothing
+  // selected it applies to what's typed next
+  toggleMark(key, value = true) {
+    const ed = this.editing
+    if (!ed) return
+    const ta = ed.textarea
+    const s = ta.selectionStart, e = ta.selectionEnd
+    const mk = ed.field === 'label' ? 'labelMarks' : 'marks'
+    const cur = this.store.get(ed.id)
+    if (!cur) return
+    const marks = cur.props[mk] || []
+    if (s === e) {
+      const on = key in ed.pending ? ed.pending[key] : !!markAt(marks, Math.max(0, s - 1))[key]
+      ed.pending[key] = on ? false : value
+      this.emit('edit')
+      return
+    }
+    const next = setMark(marks, s, e, key, !hasMark(marks, s, e, key), value)
+    this.store.update(ed.id, { props: { [mk]: next.length ? next : undefined } })
+    ta.focus()
+    ta.setSelectionRange(s, e)
+    this.emit('edit')
+  }
+  // link the selection to `href` (empty = unlink); no selection links the
+  // word at the caret
+  setLink(href) {
+    const ed = this.editing
+    if (!ed) return
+    const ta = ed.textarea
+    let s = ta.selectionStart, e = ta.selectionEnd
+    if (s === e) {
+      const t = ta.value
+      while (s > 0 && !/\s/.test(t[s - 1])) s--
+      while (e < t.length && !/\s/.test(t[e])) e++
+      if (s === e) return
+    }
+    const mk = ed.field === 'label' ? 'labelMarks' : 'marks'
+    const cur = this.store.get(ed.id)
+    if (!cur) return
+    const clean = String(href || '').trim()
+    const next = setMark(cur.props[mk] || [], s, e, 'href', !!clean, clean)
+    this.store.update(ed.id, { props: { [mk]: next.length ? next : undefined } })
+    ta.focus()
+    ta.setSelectionRange(s, e)
+    this.emit('edit')
+  }
+  // ask for a link (⌘K): the browser's prompt, prefilled with the current one
+  promptLink() {
+    const st = this.editingStyle()
+    if (!st) return
+    const href = typeof window !== 'undefined' && window.prompt ? window.prompt('Link to', st.href || 'https://') : null
+    if (href === null) { this.editing?.textarea.focus(); return }
+    this.setLink(href === 'https://' ? '' : href)
   }
   _commitText() {
     const ed = this.editing
@@ -1516,10 +1619,8 @@ export class Editor {
   // text takes a side pull as its wrap width (see scaleShape).
   _resizeScales(handle, sx, sy, shapes, e) {
     const corner = handle.length === 2
-    const whole = shapes.every((sh) => ['image', 'note', 'text'].includes(sh.type))
-    const notes = shapes.every((sh) => sh.type === 'note' || sh.type === 'image')
+    const whole = shapes.every((sh) => ['image', 'text'].includes(sh.type))
     if (corner && (e.shiftKey || whole)) { const s = Math.max(sx, sy); return [s, s] }
-    if (!corner && notes && shapes.every((sh) => sh.type === 'note')) { const s = handle === 'l' || handle === 'r' ? sx : sy; return [s, s] }
     return [sx, sy]
   }
   // ⌥ (or ctrl) resizes about the centre instead of the far edge

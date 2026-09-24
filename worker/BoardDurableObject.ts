@@ -3,8 +3,8 @@ import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core
 import { centreOf } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
 import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, canSee, provisionalAge } from '../shared/freshness'
-import type { ClientMessage, Cursor, Peer, ServerMessage, WireDiff } from '../shared/protocol'
-import type { FeedItem, ItemMeta } from '../shared/types'
+import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
+import type { DesktopStats, FeedItem, ItemMeta } from '../shared/types'
 
 /** Set by the worker (never trusted from the client). */
 export const USER_HEADER = 'x-dfyi-user'
@@ -32,6 +32,7 @@ type Row = {
   archived_at: number | null
   cx: number
   cy: number
+  pinned: number
   [key: string]: SqlStorageValue
 }
 
@@ -52,6 +53,7 @@ const FEED_RECORD_CHARS = 48 * 1024
  */
 export class BoardDurableObject extends DurableObject<Env> {
   private cursors = new Map<string, Cursor | null>()
+  private viewports = new Map<string, Viewport | null>()
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -88,7 +90,15 @@ export class BoardDurableObject extends DurableObject<Env> {
       );
       CREATE INDEX IF NOT EXISTS events_item ON events(item_id, seq);
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS visits (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        at INTEGER NOT NULL,
+        user_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS visits_at ON visits(at);
     `)
+    const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(records)').toArray().map((c) => c.name)
+    if (!columns.includes('pinned')) this.sql.exec('ALTER TABLE records ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
   }
 
   private get sql() {
@@ -126,9 +136,20 @@ export class BoardDurableObject extends DurableObject<Env> {
     server.serializeAttachment(attachment)
     this.ctx.acceptWebSocket(server)
 
+    this.recordVisit(userId)
     this.sendDocument(server, attachment)
-    if (!readonly) this.broadcast({ type: 'peer', peer: this.peerOf(attachment) }, server)
+    this.broadcast({ type: 'peer', peer: this.peerOf(attachment) }, server)
     return new Response(null, { status: 101, webSocket: client })
+  }
+
+  /** One visit per window, but the same person coming back within ten minutes (a reconnect) is not a new one. */
+  private recordVisit(userId: string | null) {
+    const now = Date.now()
+    if (userId) {
+      const recent = this.sql.exec<{ at: number }>('SELECT at FROM visits WHERE user_id = ? ORDER BY seq DESC LIMIT 1', userId).toArray()[0]
+      if (recent && now - recent.at < 10 * 60_000) return
+    }
+    this.sql.exec('INSERT INTO visits (at, user_id) VALUES (?, ?)', now, userId)
   }
 
   private sendDocument(ws: WebSocket, attachment: Attachment) {
@@ -173,15 +194,21 @@ export class BoardDurableObject extends DurableObject<Env> {
   }
 
   private peerOf(attachment: Attachment): Peer {
-    return { sessionId: attachment.sessionId, userId: attachment.userId ?? '', cursor: this.cursors.get(attachment.sessionId) ?? null }
+    return {
+      sessionId: attachment.sessionId,
+      userId: attachment.userId,
+      cursor: this.cursors.get(attachment.sessionId) ?? null,
+      viewport: this.viewports.get(attachment.sessionId) ?? null,
+    }
   }
 
+  /** Every open window but this one, viewers included. */
   private peers(except: WebSocket): Peer[] {
     const out: Peer[] = []
     for (const ws of this.ctx.getWebSockets()) {
       if (ws === except) continue
       const attachment = getAttachment(ws)
-      if (!attachment || attachment.readonly) continue
+      if (!attachment) continue
       out.push(this.peerOf(attachment))
     }
     return out
@@ -226,9 +253,31 @@ export class BoardDurableObject extends DurableObject<Env> {
         return
       }
 
+      case 'pin':
+      case 'freshen': {
+        if (attachment.readonly || !attachment.userId) {
+          this.send(ws, { type: 'rejected', reason: 'Sign in first' })
+          return
+        }
+        const ids = Array.isArray(msg.ids) ? msg.ids.filter(isId).slice(0, 200) : []
+        const metas = this.mark(ids, attachment.userId, msg.type === 'pin' ? { pinned: !!msg.pinned } : { freshen: true })
+        if (!Object.keys(metas).length) {
+          this.send(ws, { type: 'rejected', reason: 'Only the author or the desktop owner can do that' })
+          return
+        }
+        this.relayMetas(metas)
+        void this.ensureAlarm()
+        return
+      }
+
       case 'cursor': {
-        if (attachment.readonly) return
         this.cursors.set(attachment.sessionId, sanitizeCursor(msg.cursor))
+        this.broadcast({ type: 'peer', peer: this.peerOf(attachment) }, ws)
+        return
+      }
+
+      case 'view': {
+        this.viewports.set(attachment.sessionId, sanitizeViewport(msg.viewport))
         this.broadcast({ type: 'peer', peer: this.peerOf(attachment) }, ws)
         return
       }
@@ -255,7 +304,8 @@ export class BoardDurableObject extends DurableObject<Env> {
     const attachment = getAttachment(ws)
     if (!attachment) return
     this.cursors.delete(attachment.sessionId)
-    if (!attachment.readonly) this.broadcast({ type: 'leave', sessionId: attachment.sessionId }, ws)
+    this.viewports.delete(attachment.sessionId)
+    this.broadcast({ type: 'leave', sessionId: attachment.sessionId }, ws)
   }
 
   // ---- layers ----
@@ -329,6 +379,38 @@ export class BoardDurableObject extends DurableObject<Env> {
     return { accepted, restore, metas, now }
   }
 
+  /** Pins/unpins or freshens the items this person may touch (their own, or anything on their desktop). */
+  private mark(ids: string[], userId: string, what: { pinned?: boolean; freshen?: boolean }): Record<string, ItemMeta> {
+    const now = Date.now()
+    const owner = this.owner
+    const metas: Record<string, ItemMeta> = {}
+    this.ctx.storage.transactionSync(() => {
+      for (const id of ids) {
+        const row = this.row(id)
+        if (!row || row.state !== 'live' || row.is_asset) continue
+        if (userId !== owner && userId !== row.author) continue
+        if (what.freshen) this.sql.exec('UPDATE records SET score = 0, scored_at = ?, pending = 0, edited_by = ?, edited_at = ? WHERE id = ?', now, userId, now, id)
+        if (what.pinned !== undefined) this.sql.exec('UPDATE records SET pinned = ? WHERE id = ?', what.pinned ? 1 : 0, id)
+        metas[id] = metaOf(this.row(id)!)
+      }
+    })
+    return metas
+  }
+
+  /** Bookkeeping changes go to everyone who may see the items concerned. */
+  private relayMetas(metas: Record<string, ItemMeta>) {
+    const now = Date.now()
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = getAttachment(ws)
+      if (!attachment) continue
+      const visible: Record<string, ItemMeta> = {}
+      for (const [id, meta] of Object.entries(metas)) {
+        if (canSee(meta, provisionalAge(meta, now), attachment.userId)) visible[id] = meta
+      }
+      if (Object.keys(visible).length) this.send(ws, { type: 'metas', metas: visible })
+    }
+  }
+
   private row(id: string): Row | undefined {
     return this.sql.exec<Row>('SELECT * FROM records WHERE id = ?', id).toArray()[0]
   }
@@ -395,7 +477,7 @@ export class BoardDurableObject extends DurableObject<Env> {
   /** Ages everything, pays out the day's bumps, archives what is past saving, purges the long-archived. */
   runDailyPass(now = Date.now()) {
     const rows = this.sql.exec<Row>("SELECT * FROM records WHERE state = 'live' AND is_asset = 0").toArray()
-    const items: DecayItem[] = rows.map((r) => ({ id: r.id, cx: r.cx, cy: r.cy, createdAt: r.created_at, score: r.score, scoredAt: r.scored_at }))
+    const items: DecayItem[] = rows.map((r) => ({ id: r.id, cx: r.cx, cy: r.cy, createdAt: r.created_at, score: r.score, scoredAt: r.scored_at, pinned: !!r.pinned }))
     const events: DecayEvent[] = this.sql
       .exec<{ item_id: string; kind: EventKind }>('SELECT item_id, kind FROM events ORDER BY seq')
       .toArray()
@@ -413,6 +495,10 @@ export class BoardDurableObject extends DurableObject<Env> {
       }
       this.sql.exec('DELETE FROM events')
       this.sql.exec("DELETE FROM records WHERE state = 'archived' AND archived_at < ?", now - PURGE_AFTER_DAYS * DAY_MS)
+      this.sql.exec('DELETE FROM visits WHERE at < ?', now - 90 * DAY_MS)
+      const total = this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM visits WHERE at < ?', now - 60 * DAY_MS).toArray()[0]?.n ?? 0
+      if (total) this.kvSet('visitsBefore', String(Number(this.kvGet('visitsBefore') ?? 0) + total))
+      this.sql.exec('DELETE FROM visits WHERE at < ?', now - 60 * DAY_MS)
       this.kvSet('lastRunAt', String(now))
     })
     const archived = new Set(result.archived)
@@ -504,6 +590,27 @@ export class BoardDurableObject extends DurableObject<Env> {
     return { liveItems, lastActivityAt, layers: [...layers] }
   }
 
+  /** Who has been looking. The worker only hands this to the owner. */
+  async stats(): Promise<DesktopStats> {
+    const now = Date.now()
+    const count = (since: number) => {
+      const r = this.sql
+        .exec<{ views: number; people: number; anon: number }>(
+          'SELECT COUNT(*) AS views, COUNT(DISTINCT user_id) AS people, SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END) AS anon FROM visits WHERE at >= ?',
+          since
+        )
+        .toArray()[0]
+      return { views: Number(r?.views ?? 0), people: Number(r?.people ?? 0) + Number(r?.anon ?? 0) }
+    }
+    const all = this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM visits').toArray()[0]?.n ?? 0
+    return {
+      liveNow: this.ctx.getWebSockets().length,
+      today: count(now - DAY_MS),
+      week: count(now - 7 * DAY_MS),
+      allTime: Number(all) + Number(this.kvGet('visitsBefore') ?? 0),
+    }
+  }
+
   /** Everything, archive included: the data request. */
   async exportAll(): Promise<{ owner: string; exportedAt: number; records: Array<{ record: unknown; meta: ItemMeta; state: string; archivedAt: number | null }> }> {
     const rows = this.sql.exec<Row>('SELECT * FROM records ORDER BY created_at').toArray()
@@ -572,6 +679,7 @@ function metaOf(row: Row): ItemMeta {
     score: row.score,
     scoredAt: row.scored_at,
     pending: row.pending,
+    pinned: !!row.pinned,
   }
 }
 
@@ -641,6 +749,12 @@ function sanitizeCursor(value: unknown): Cursor | null {
   if (!value || typeof value !== 'object') return null
   const { x, y } = value as { x?: unknown; y?: unknown }
   return isFinite(x) && isFinite(y) ? { x, y } : null
+}
+
+function sanitizeViewport(value: unknown): Viewport | null {
+  if (!value || typeof value !== 'object') return null
+  const { x, y, w, h } = value as Record<string, unknown>
+  return isFinite(x) && isFinite(y) && isFinite(w) && isFinite(h) && w > 0 && h > 0 ? { x, y, w, h } : null
 }
 
 function sanitizeStrokes(value: unknown): ScribbleStroke[] | null {

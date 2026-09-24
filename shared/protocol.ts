@@ -15,17 +15,31 @@ export interface Cursor {
   y: number
 }
 
-/** A signed-in person in the room. Anonymous viewers are invisible. */
+/** The part of the desktop a window is looking at, in page units. */
+export interface Viewport {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** One open window on the desktop. `userId` is null for someone not signed in. */
 export interface Peer {
   sessionId: string
-  userId: string
+  userId: string | null
   cursor: Cursor | null
+  viewport: Viewport | null
 }
 
 export type ClientMessage =
   /** `layer` is where new records land: the owner's id for the desktop itself, or the sender's own id. */
   | { type: 'diff'; diff: WireDiff; layer: string }
+  /** Pin (or unpin) things so they stop aging; the owner or the author may. */
+  | { type: 'pin'; ids: string[]; pinned: boolean }
+  /** Make things fresh again right now. */
+  | { type: 'freshen'; ids: string[] }
   | { type: 'cursor'; cursor: Cursor | null }
+  | { type: 'view'; viewport: Viewport | null }
   | { type: 'laser'; strokes: ScribbleStroke[] }
   | { type: 'ping' }
 

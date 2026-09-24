@@ -2,8 +2,7 @@
 """Re-applies desktop.fyi's additions to a freshly vendored Quickdraw.
 
 Usage, from the repo root:
-    rsync -a --delete --exclude test --exclude README.md ../quickdraw/packages/core/ vendor/quickdraw/packages/core/
-    rsync -a --delete --exclude README.md ../quickdraw/packages/react/ vendor/quickdraw/packages/react/
+    rm -rf vendor/quickdraw/packages && mkdir -p vendor/quickdraw/packages && git -C ../quickdraw archive HEAD packages/core packages/react | tar -x -C vendor/quickdraw/
     git -C ../quickdraw rev-parse HEAD > vendor/quickdraw/UPSTREAM_COMMIT
     python3 vendor/quickdraw/apply-hooks.py
 
@@ -18,6 +17,8 @@ def patch(path, reps):
     p = os.path.join(root, path)
     s = open(p).read()
     for old, new in reps:
+        if s.count(new) == 1:
+            continue  # already applied (checked first: a result may still contain its own anchor)
         assert s.count(old) == 1, f'{path}: anchor not found exactly once:\n{old[:80]}'
         s = s.replace(old, new)
     open(p, 'w').write(s)
@@ -64,6 +65,41 @@ patch('src/editor.js', [
     # 4. notes keep their yellow paper when the pen is black (our default)
     ("""color: this.styles.color === DEFAULT_STYLES.color ? 'yellow' : this.styles.color,""",
      """color: this.styles.color === DEFAULT_STYLES.color || this.styles.color === 'black' ? 'yellow' : this.styles.color,"""),
+])
+
+# Upstream candidate (remove once Quickdraw has it): sticky notes honour the
+# align style. Anchored on Quickdraw d1f4783.
+patch('src/shapes.js', [
+    ("""  if (shape.type === 'note') {
+    const l = noteLayout(shape)
+    return { ...l, top: Math.max(NOTE_PAD, l.boxH / 2 - l.textH / 2), marks: p.marks, text: p.text, scale: p.scale || 1,
+      left: (line) => l.boxW / 2 - line.w / 2 }
+  }""", """  if (shape.type === 'note') {
+    const l = noteLayout(shape)
+    // notes centre their text unless told otherwise (older notes carry no align)
+    const align = p.align || 'middle'
+    return { ...l, top: Math.max(NOTE_PAD, l.boxH / 2 - l.textH / 2), marks: p.marks, text: p.text, scale: p.scale || 1,
+      left: (line) => (align === 'start' ? NOTE_PAD : align === 'end' ? l.boxW - NOTE_PAD - line.w : l.boxW / 2 - line.w / 2) }
+  }"""),
+])
+patch('src/editor.js', [
+    ("""        align: ['text'],""", """        align: ['text', 'note'],"""),
+    ("""      w = (lay.boxW - 40) * s
+      h = lay.textH * s
+      align = 'center'""", """      w = (lay.boxW - 40) * s
+      h = lay.textH * s
+      align = shape.props.align === 'start' ? 'left' : shape.props.align === 'end' ? 'right' : 'center'"""),
+    ("""      for (const k of ['color', 'size', 'dash', 'fill', 'font', 'align']) {
+        if (s.props[k] === undefined) continue
+        if (!(k in out)) out[k] = s.props[k]
+        else if (out[k] !== s.props[k]) out[k] = null
+      }""", """      for (const k of ['color', 'size', 'dash', 'fill', 'font', 'align']) {
+        // a note without an align is a centred note
+        const v = k === 'align' && s.type === 'note' ? (s.props.align ?? 'middle') : s.props[k]
+        if (v === undefined) continue
+        if (!(k in out)) out[k] = v
+        else if (out[k] !== v) out[k] = null
+      }"""),
 ])
 
 patch('types/index.d.ts', [

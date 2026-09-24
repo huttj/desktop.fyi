@@ -289,7 +289,10 @@ function convertShape(s, o, r, binds) {
       const { text, marks } = untab(richTextToText(p.richText ?? p.text))
       return placed({
         ...base, type: 'note',
-        props: { text, color: color(p.color), size: size(p.size), font: font(p.font), scale: p.scale || 1, ...(marks.length ? { marks } : {}), ...link(p) },
+        props: {
+          text, color: color(p.color), size: size(p.size), font: font(p.font), scale: p.scale || 1,
+          ...(p.growY ? { h: 200 + p.growY } : {}), ...(marks.length ? { marks } : {}), ...link(p),
+        },
       }, o, r)
     }
     case 'geo': {

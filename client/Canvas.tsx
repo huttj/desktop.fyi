@@ -7,6 +7,8 @@ import { AttributionOverlay } from './AttributionOverlay'
 import { BoardHeader } from './BoardHeader'
 import { Cursors } from './Cursors'
 import { FeedPanel } from './FeedPanel'
+import { SelectionActions } from './SelectionActions'
+import { Viewports } from './Viewports'
 import { installFreshness, type FreshnessState, type LayerView } from './freshness'
 import { installLinkify } from './linkify'
 import type { People } from './people'
@@ -112,7 +114,7 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
     }
   }, [me])
 
-  useEffect(() => lookup(peers.map((p) => p.userId)), [peers, lookup])
+  useEffect(() => lookup(peers.map((p) => p.userId).filter((id): id is string => !!id)), [peers, lookup])
 
   useEffect(() => (me ? installLinkify(store) : undefined), [store, me])
 
@@ -171,6 +173,7 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
     const sync = new BoardSync(store, socketUrl(handle), {
       canEdit: !!me,
       layer: () => layerRef.current(),
+      viewport: () => editorRef.current?.viewportPageBounds() ?? null,
       onStatus: setStatus,
       onPeers: setPeers,
       onLaser: (strokes) => editorRef.current?.setRemoteScribbles(strokes),
@@ -204,6 +207,8 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
 
       if (syncRef.current?.isReady) frame(ed)
       mirrorViewToHash(ed)
+      ed.on('camera', () => syncRef.current?.sendViewport(ed.viewportPageBounds()))
+      syncRef.current?.sendViewport(ed.viewportPageBounds())
 
       if (!me) {
         ed.setTool('hand')
@@ -219,9 +224,21 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
 
   useEffect(() => (editor ? installFreshness(editor, fresh.current) : undefined), [editor])
 
+  // A link to items on this very desktop (from the feed, say) only changes the hash: follow it.
+  useEffect(() => {
+    if (!editor) return
+    const onHash = () => {
+      const view = parseView(window.location.hash)
+      if (!view || view.kind !== 'items') return
+      if (!applyView(editor, view, { animate: 260 })) setNotice('That item is no longer on this desktop')
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [editor])
+
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const ed = editorRef.current
-    if (!ed || !me) return
+    if (!ed) return
     const r = ed.container.getBoundingClientRect()
     syncRef.current?.sendCursor(ed.screenToPage(e.clientX - r.left, e.clientY - r.top))
   }
@@ -275,8 +292,10 @@ export function Canvas({ handle, me, onSignOut }: { handle: string; me: Me | nul
           writePref('dfyi:grid', g)
         }}
       />
+      {editor && <Viewports editor={editor} peers={peers} people={people} meId={me?.id ?? null} />}
       {editor && <Cursors editor={editor} peers={peers} people={people} />}
       {editor && <AttributionOverlay editor={editor} people={people} metas={fresh.current.metas} meId={me?.id ?? null} />}
+      {editor && me && <SelectionActions editor={editor} me={me} owner={owner} metas={fresh.current.metas} metaVersion={metaVersion} sync={syncRef.current} />}
       <BoardHeader
         handle={handle}
         me={me}

@@ -170,6 +170,14 @@ export function pageBounds(shape: ShapeRecord): Bounds
 export function runsIn(marks: TextMark[] | undefined, from: number, to: number): Array<[number, number, Partial<TextMark>]>
 /** Carry marks across an edit of their text (positions before stay, after shift, inside collapse; empty runs go). */
 export function mapMarks(marks: TextMark[] | undefined, oldText: string, newText: string): TextMark[] | undefined
+/** The style at a text position, {} when plain. */
+export function markAt(marks: TextMark[] | undefined, pos: number): Partial<TextMark>
+/** Does every character of [from, to) carry the key? */
+export function hasMark(marks: TextMark[] | undefined, from: number, to: number, key: keyof TextMark): boolean
+/** [from, to) with the key set (to `value`) or cleared; runs are split at the edges. */
+export function setMark(marks: TextMark[] | undefined, from: number, to: number, key: keyof TextMark, on: boolean, value?: boolean | string): TextMark[]
+/** Sorted, non-overlapping runs with adjacent equal ones merged. */
+export function normalizeMarks(marks: TextMark[] | undefined): TextMark[]
 /** The link under a shape-local point on a text, note, or geo label, or null. */
 export function textLinkAt(shape: ShapeRecord, lx: number, ly: number): string | null
 /** The link badge a shape with `props.url` wears (local centre and radius), or null. */
@@ -389,6 +397,14 @@ export class Editor {
   duplicateSelection(offset?: number): void
   /** Open the text surface on a text, note, or geo (label) shape. */
   editShapeText(id: string): void
+  /** While editing: the style at the caret (or across the selection), pending toggles included. */
+  editingStyle(): Record<string, boolean | string> | null
+  /** While editing: toggle a mark over the selection, or for what's typed next (⌘B / ⌘I / ⌘U / ⇧⌘X / ⌘E / ⇧⌘H). */
+  toggleMark(key: 'b' | 'i' | 'u' | 's' | 'code' | 'hl'): void
+  /** While editing: link the selection (or the word at the caret); empty unlinks. */
+  setLink(href: string): void
+  /** While editing: ask for a link with the browser's prompt (⌘K). */
+  promptLink(): void
   shapesSorted(): ShapeRecord[]
   hitTest(px: number, py: number): ShapeRecord | null
 

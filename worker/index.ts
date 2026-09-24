@@ -5,7 +5,7 @@ import { BoardDurableObject, OWNER_HEADER, USER_HEADER } from './BoardDurableObj
 import { Db, HANDLE_RE, RESERVED_HANDLES, toPerson, toSummary, type UserRow } from './db'
 import { sendMagicLink } from './email'
 import { DAY_MS } from '../shared/freshness'
-import type { Feed, FeedItem, Me, Person, Profile } from '../shared/types'
+import type { DesktopStats, Feed, FeedItem, Me, Person, Profile } from '../shared/types'
 
 export { BoardDurableObject } from './BoardDurableObject'
 
@@ -210,6 +210,16 @@ const router = AutoRouter<IRequest, Args>({
       profile.followsYou = followsYou
     }
     return json(profile)
+  })
+
+  /** Viewer stats: the desktop's owner (or an admin) only. */
+  .get('/api/users/:handle/stats', requireAuth, async (request, env) => {
+    const me = (request as AuthedRequest).user
+    const target = await resolveHandle(env, request.params.handle)
+    if (!target) return error(404, 'No such desktop')
+    if (target.id !== me.id && !isAdminEmail(env, me.email)) return error(403, 'Only the owner can see this')
+    const stats: DesktopStats = await board(env, target.id).stats()
+    return json(stats)
   })
 
   .get('/api/users/:handle/following', async (request, env) => {

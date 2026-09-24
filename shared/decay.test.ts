@@ -81,6 +81,12 @@ describe('runDecay', () => {
     expect(replied.bumps.get('post')!).toBeGreaterThan(1)
   })
 
+  it('a pinned item does not age', () => {
+    const r = runDecay([item('a', { score: 6.9, pinned: true })], [], T0 + 10 * DAY_MS)
+    expect(r.scores.get('a')).toBe(0)
+    expect(r.archived).toEqual([])
+  })
+
   it('ignores events for items it was not given', () => {
     const r = runDecay([item('a')], [{ itemId: 'ghost', kind: 'edit' }], T0 + DAY_MS)
     expect(r.scores.get('a')).toBeCloseTo(1)

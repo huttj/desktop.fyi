@@ -359,6 +359,7 @@ body {
 .TopBar-status {
   width: 8px;
   height: 8px;
+  flex: none;
   border-radius: 50%;
   margin: 0 2px;
   background: #39b178;
@@ -374,27 +375,9 @@ body {
   animation: TopBar-pulse 1.2s ease-in-out infinite;
 }
 
-/* Signed in: the status light becomes the ring around your own avatar
-   (the avatar keeps your colour; it is set inline). */
-.AvatarButton {
-  --status: #39b178;
-}
-
-.AvatarButton.TopBar-status--connecting {
-  --status: #e8b33a;
-}
-
-.AvatarButton.TopBar-status--offline {
-  --status: #ec5e41;
+/* No status light; an offline pill just pulses until the room is back. */
+.TopBar-button--offline {
   animation: TopBar-pulse 1.2s ease-in-out infinite;
-}
-
-.Avatar--me {
-  box-shadow: 0 0 0 2px var(--status), var(--panel-shadow);
-}
-
-.AvatarButton:hover .Avatar--me {
-  filter: brightness(1.08);
 }
 
 @keyframes TopBar-pulse {
@@ -512,15 +495,21 @@ img.Avatar {
   color: var(--panel-fg);
 }
 
+.CanvasRoot {
+  --pill-h: 38px;
+}
+
 .TopBar-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  height: var(--pill-h);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 1;
-  padding: 6px 10px;
+  padding: 0 14px;
   border-radius: 999px;
   border: 1px solid var(--panel-line);
   cursor: pointer;
@@ -557,11 +546,7 @@ img.Avatar {
 }
 
 .TopBar-button--icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: var(--pill-h);
   padding: 0;
 }
 
@@ -772,11 +757,12 @@ img.Avatar {
 .BoardHeader-owner {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  height: var(--pill-h);
   font: inherit;
   cursor: pointer;
   text-align: left;
-  padding: 3px 10px 3px 4px;
+  padding: 0 10px 0 4px;
   border-radius: 999px;
   background: var(--panel);
   border: 1px solid var(--panel-line);
@@ -788,8 +774,12 @@ img.Avatar {
   min-width: 0;
 }
 
-.BoardHeader-owner .Avatar {
+.BoardHeader-owner .Avatar,
+.TopBar-me .Avatar {
   margin-left: 0;
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
 }
 
 
@@ -805,8 +795,11 @@ img.Avatar {
 .BoardHeader-name {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
   line-height: 1.15;
   min-width: 0;
+  font-size: 13px;
 }
 
 .BoardHeader-name strong {
@@ -982,11 +975,8 @@ img.Avatar {
 /* you, top-right: photo and name are one button; the ring around the photo is the connection light */
 
 .TopBar-me {
-  padding: 2px 10px 2px 2px;
-}
-
-.TopBar-me .Avatar {
-  margin-left: 0;
+  padding: 0 14px 0 4px;
+  gap: 8px;
 }
 
 .TopBar-button--on {
@@ -1128,8 +1118,8 @@ img.Avatar {
 
 .FeedPanel {
   position: absolute;
-  top: 52px;
-  right: 8px;
+  top: 54px;
+  left: 8px;
   bottom: 8px;
   width: min(380px, calc(100vw - 16px));
   z-index: 44;
@@ -1187,11 +1177,231 @@ img.Avatar {
   color: var(--panel-muted);
 }
 
+/* the minimap shows the board through itself */
 .CanvasRoot .qd-minimap {
-  transition: opacity 120ms ease;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
 }
 
-.CanvasRoot:has(.FeedPanel) .qd-minimap {
-  opacity: 0;
+.CanvasRoot[data-theme='dark'] .qd-minimap {
+  background: rgba(19, 17, 13, 0.5);
+}
+
+/* feed entries */
+
+.Entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: var(--panel-hover);
+  color: var(--panel-fg);
+  text-decoration: none;
+  transition: transform 120ms ease;
+}
+
+.Entry:hover {
+  transform: translateY(-1px);
+  opacity: 1 !important;
+}
+
+.Entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.Entry-head .Avatar--small {
+  margin: 0;
+  flex: none;
+}
+
+.Entry-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.Entry-text > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.Entry-what {
+  font-size: 12px;
+  color: var(--panel-muted);
+}
+
+.Entry-what--vanishing {
+  color: #c98a1b;
+}
+
+.Entry-thumbs {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.Entry-thumbs--1 {
+  grid-template-columns: 1fr;
+}
+
+.Entry-thumbs--3 .Entry-thumb:first-child {
+  grid-column: 1 / -1;
+}
+
+.Entry-thumb {
+  position: relative;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.Entry-thumbs--1 .Entry-thumb {
+  height: 120px;
+}
+
+.Entry-thumb canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.Entry-more {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--panel-fg);
+  color: var(--panel);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* pin / freshen, under the selection */
+
+.SelectionActions {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 41; /* over the toolbar: a selection at the bottom edge is still reachable */
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  white-space: nowrap;
+}
+
+.SelectionActions-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--panel-fg);
+  cursor: pointer;
+}
+
+.SelectionActions-button:hover {
+  background: var(--panel-hover);
+}
+
+.SelectionActions-button--on {
+  background: var(--panel-fg);
+  color: var(--panel);
+}
+
+.Attribution-age--pinned {
+  color: #2f6fed;
+}
+
+/* other windows' viewports */
+
+.Viewports {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
+  overflow: hidden;
+  z-index: 37;
+}
+
+.Viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  border: 1.5px solid;
+  border-radius: 6px;
+  opacity: 0.55;
+  will-change: transform;
+  transition: transform 90ms linear, width 90ms linear, height 90ms linear;
+}
+
+.Viewport--covers {
+  border-color: transparent !important;
+}
+
+.Viewport-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: -1px 0 0 -1px;
+  padding: 2px 7px;
+  border-radius: 5px 0 6px 0;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.TopBar-people.TopBar-button {
+  padding: 0 12px 0 6px;
+  gap: 4px;
+  cursor: default;
+}
+
+.TopBar-people .Avatar {
+  width: 26px;
+  height: 26px;
+}
+
+.TopBar-count--here {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  float: none;
+  margin-left: 4px;
+  color: var(--panel-fg);
+}
+
+.PeoplePicker-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--panel-muted);
 }

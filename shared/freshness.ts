@@ -46,7 +46,8 @@ export function falloff(distance: number): number {
 }
 
 /** Age in days right now, before the next daily pass makes it official. */
-export function provisionalAge(meta: Pick<ItemMeta, 'score' | 'scoredAt' | 'pending'>, now: number): number {
+export function provisionalAge(meta: Pick<ItemMeta, 'score' | 'scoredAt' | 'pending'> & { pinned?: boolean }, now: number): number {
+  if (meta.pinned) return 0
   const elapsed = Math.max(0, now - meta.scoredAt) / DAY_MS
   return Math.max(0, meta.score + elapsed - Math.min(meta.pending, DIRECT_CAP))
 }
@@ -81,7 +82,8 @@ export function daysUntilHidden(age: number): number {
   return HIDE_AT - age
 }
 
-export function describeAge(age: number): string {
+export function describeAge(age: number, pinned = false): string {
+  if (pinned) return 'pinned'
   const v = visibilityAt(age)
   if (v === 'fresh') return 'fresh'
   if (v === 'fading') {

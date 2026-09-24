@@ -23,6 +23,8 @@ export interface DecayItem {
   createdAt: number
   score: number
   scoredAt: number
+  /** Pinned items never age (they still count as neighbours). */
+  pinned?: boolean
 }
 
 export interface DecayEvent {
@@ -103,7 +105,7 @@ export function runDecay(items: DecayItem[], events: DecayEvent[], now: number):
     const gained = created.has(item.id)
       ? 0
       : Math.min(TOTAL_CAP, (direct.get(item.id) ?? 0) + (nearBonus.get(item.id) ?? 0) + (spread.get(item.id) ?? 0))
-    const age = created.has(item.id) ? Math.max(0, (now - item.createdAt) / DAY_MS) : Math.max(0, item.score + elapsed - gained)
+    const age = item.pinned ? 0 : created.has(item.id) ? Math.max(0, (now - item.createdAt) / DAY_MS) : Math.max(0, item.score + elapsed - gained)
     scores.set(item.id, age)
     bumps.set(item.id, gained)
     if (age >= ARCHIVE_AT) archived.push(item.id)

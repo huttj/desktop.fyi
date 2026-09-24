@@ -418,6 +418,42 @@
 }
 .qd-drag-ghost svg { width: 22px; height: 22px; display: block; }
 
+/* ---- text formatting bar (floats above text being edited) ---- */
+.qd-fmt {
+  position: absolute;
+  z-index: 45;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--qd-pop-bg);
+  border: 1px solid var(--qd-border);
+  box-shadow: var(--qd-pop-shadow);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: auto;
+}
+.qd-fmt-btn {
+  width: 30px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--qd-ink);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  transition: background 120ms ease, color 120ms ease;
+}
+.qd-fmt-btn svg { width: 15px; height: 15px; }
+.qd-fmt-btn:hover { background: var(--qd-hover); }
+.qd-fmt-btn.on { background: var(--qd-on-bg); color: var(--qd-on-ink); }
+.qd-fmt-hl { padding: 0 3px; border-radius: 3px; background: rgba(251, 229, 192, 0.9); color: #1d1d1d; }
+.qd-fmt-btn.on .qd-fmt-hl { background: rgba(251, 229, 192, 0.6); }
+
 /* ---- minimap ---- */
 /* the whole drawing at a glance, top-right. The fold button floats over the
    map's corner and only shows on hover; folded, the map is just that button. */

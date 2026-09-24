@@ -9,7 +9,10 @@ export {
   themeOf, THEMES, COLOR_IDS, SIZE_IDS, DASH_IDS, FILL_IDS, GEO_IDS, GRID_IDS, FONT_IDS, ALIGN_IDS,
   SIZES, FONT_SIZES, FONTS,
 } from './palette.js'
-export { pageBounds, localBounds, drawShape, hitShape, imageFrame, runsIn, mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout } from './shapes.js'
+export {
+  pageBounds, localBounds, drawShape, hitShape, imageFrame, runsIn, mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout,
+  markAt, hasMark, setMark, normalizeMarks,
+} from './shapes.js'
 export { openUrl, normalizeText } from './editor.js'
 export { strokeOutline } from './freehand.js'
 export { sceneToSvg, shapeToSvg } from './svg.js'

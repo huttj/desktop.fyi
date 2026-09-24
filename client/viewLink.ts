@@ -1,10 +1,10 @@
-import { pageBounds, type Editor } from '@quickdrawjs/core'
+import { pageBounds, type Bounds, type Editor } from '@quickdrawjs/core'
 
-/** A shareable view: the page point at the middle of the screen, plus zoom; or an item to frame. */
-export type View = { kind: 'camera'; x: number; y: number; z: number } | { kind: 'item'; id: string }
+/** A shareable view: the page point at the middle of the screen plus zoom, or one or more items to frame. */
+export type View = { kind: 'camera'; x: number; y: number; z: number } | { kind: 'items'; ids: string[] }
 
 const VIEW_RE = /^#v=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)$/
-const ITEM_RE = /^#i=([A-Za-z0-9:_-]{1,96})$/
+const ITEMS_RE = /^#i=([A-Za-z0-9:_,-]{1,4000})$/
 
 export function parseView(hash: string): View | null {
   const m = VIEW_RE.exec(hash)
@@ -12,8 +12,11 @@ export function parseView(hash: string): View | null {
     const view = { kind: 'camera' as const, x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) }
     return Number.isFinite(view.x) && Number.isFinite(view.y) && view.z > 0 ? view : null
   }
-  const i = ITEM_RE.exec(hash)
-  if (i) return { kind: 'item', id: i[1]! }
+  const i = ITEMS_RE.exec(decodeURIComponent(hash))
+  if (i) {
+    const ids = i[1]!.split(',').filter(Boolean).slice(0, 60)
+    return ids.length ? { kind: 'items', ids } : null
+  }
   return null
 }
 
@@ -27,19 +30,31 @@ export function formatView(view: { x: number; y: number; z: number }) {
   return `#v=${view.x.toFixed(1)},${view.y.toFixed(1)},${view.z.toFixed(3)}`
 }
 
-/** Applies a deep link. Returns false when it names an item that is not on the board (yet). */
-export function applyView(editor: Editor, view: View): boolean {
+function union(a: Bounds | null, b: Bounds): Bounds {
+  if (!a) return b
+  const x = Math.min(a.x, b.x)
+  const y = Math.min(a.y, b.y)
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y }
+}
+
+/**
+ * Applies a deep link. Items are framed together (centred, zoomed to fit, selected).
+ * Returns false when it names items that are not on the board (for this viewer).
+ */
+export function applyView(editor: Editor, view: View, { animate = 0 } = {}): boolean {
   const { w, h } = editor.viewSize()
   if (view.kind === 'camera') {
-    editor.setCamera({ x: w / (2 * view.z) - view.x, y: h / (2 * view.z) - view.y, z: view.z })
+    editor.setCamera({ x: w / (2 * view.z) - view.x, y: h / (2 * view.z) - view.y, z: view.z }, { animate })
     return true
   }
-  const shape = editor.store.get(view.id)
-  if (!shape || shape.typeName !== 'shape') return false
-  const b = pageBounds(shape)
-  const z = Math.min(1, Math.min(w / (b.w + 200), h / (b.h + 200)))
-  editor.setCamera({ x: w / (2 * z) - (b.x + b.w / 2), y: h / (2 * z) - (b.y + b.h / 2), z })
-  editor.setSelection([shape.id])
+  const present = view.ids.filter((id) => editor.shapesSorted().some((s) => s.id === id))
+  if (!present.length) return false
+  let b: Bounds | null = null
+  for (const id of present) b = union(b, pageBounds(editor.store.get(id) as Parameters<typeof pageBounds>[0]))
+  const box = b!
+  const z = Math.max(0.1, Math.min(1, Math.min(w / (box.w + 240), h / (box.h + 240))))
+  editor.setCamera({ x: w / (2 * z) - (box.x + box.w / 2), y: h / (2 * z) - (box.y + box.h / 2), z }, { animate })
+  editor.setSelection(present)
   return true
 }
 
@@ -47,8 +62,8 @@ export function viewLink(editor: Editor) {
   return `${window.location.origin}${window.location.pathname}${formatView(currentView(editor))}`
 }
 
-export function itemLink(handle: string, id: string) {
-  return `/@${handle}#i=${encodeURIComponent(id)}`
+export function itemsLink(handle: string, ids: string[]) {
+  return `/@${handle}#i=${ids.map(encodeURIComponent).join(',')}`
 }
 
 /** Mirrors the camera into the URL hash (throttled) so the address bar is always a deep link. */
