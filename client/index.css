@@ -1323,9 +1323,14 @@ img.Avatar {
   background: var(--panel-hover);
 }
 
-.SelectionActions-button--on {
+.SelectionActions-button--on,
+.SelectionActions-button--on:hover {
   background: var(--panel-fg);
   color: var(--panel);
+}
+
+.SelectionActions-button--on:hover {
+  filter: brightness(1.2);
 }
 
 .Attribution-age--pinned {
