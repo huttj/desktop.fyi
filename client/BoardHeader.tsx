@@ -297,7 +297,7 @@ function LayerPicker({
               <hr className="TopBar-rule" />
               <label className="TopBar-item TopBar-item--check">
                 <input type="checkbox" checked={showHidden} onChange={(e) => onShowHidden(e.target.checked)} />
-                Show my hidden things
+                Show expired
                 <span className="TopBar-count">{hiddenMine}</span>
               </label>
             </>
