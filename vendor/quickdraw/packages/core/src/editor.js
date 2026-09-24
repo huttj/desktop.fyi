@@ -1048,6 +1048,26 @@ export class Editor {
     const minD = 1.25 / this.camera.z
     if (Math.hypot(p.x - ss.last.x, p.y - ss.last.y) < minD) return
     ss.last = p
+    // a held shift rules the stroke: from where shift went down, one straight
+    // segment to the pointer, snapped to 15° like the line tool; let go and
+    // the hand takes over again from the segment's end
+    if (e.shiftKey) {
+      if (!ss.rule) {
+        const prev = shape.props.pts
+        const n = prev.length
+        ss.rule = { at: n, x: prev[n - 3], y: prev[n - 2] }
+      }
+      let dx = p.x - shape.x - ss.rule.x, dy = p.y - shape.y - ss.rule.y
+      const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12)
+      const len = Math.hypot(dx, dy)
+      dx = Math.cos(a) * len
+      dy = Math.sin(a) * len
+      const ruled = shape.props.pts.slice(0, ss.rule.at)
+      ruled.push(ss.rule.x + dx, ss.rule.y + dy, e.pressure || 0.5)
+      this.store.update(ss.id, { props: { pts: ruled } })
+      return
+    }
+    ss.rule = null
     // coalesced points ride along for pens — extra fidelity is free
     const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e]
     const pts = shape.props.pts.slice()

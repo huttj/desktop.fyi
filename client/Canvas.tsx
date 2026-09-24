@@ -171,18 +171,37 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
     )
   }, [store, me, owner, setView])
 
+  /** A deep link to things on another person's layer switches the view so they show. */
+  const showLayersFor = useCallback(
+    (ids: string[]) => {
+      const layers = new Set<string>()
+      for (const id of ids) {
+        const meta = fresh.current.metas.get(id)
+        if (meta && meta.layer !== fresh.current.owner) layers.add(meta.layer)
+      }
+      const v = fresh.current.view
+      if (layers.size === 0 || v === 'all') return
+      if (layers.size === 1) {
+        const only = [...layers][0]!
+        if (v !== only) setView(only)
+      } else setView('all')
+    },
+    [setView]
+  )
+
   const frame = useCallback(
     (ed: Editor) => {
       if (framed.current) return
       framed.current = true
       if (initialView) {
+        if (initialView.kind === 'items') showLayersFor(initialView.ids)
         if (!applyView(ed, initialView, { inset: panelInset() })) {
           setNotice('That item is no longer on this desktop')
           if (store.shapes().length) ed.fitContent({ maxZoom: 1 })
         }
       } else if (store.shapes().length) ed.fitContent({ maxZoom: 1 })
     },
-    [initialView, store]
+    [initialView, store, showLayersFor]
   )
 
   const missing = profile === 'missing'
@@ -315,11 +334,12 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
     const onHash = () => {
       const view = parseView(window.location.hash)
       if (!view || view.kind !== 'items') return
+      showLayersFor(view.ids)
       if (!applyView(editor, view, { animate: 260, inset: panelInset() })) setNotice('That item is no longer on this desktop')
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [editor])
+  }, [editor, showLayersFor])
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const ed = editorRef.current
