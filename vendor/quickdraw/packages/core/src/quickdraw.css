@@ -412,14 +412,13 @@
 .qd-drag-ghost svg { width: 22px; height: 22px; display: block; }
 
 /* ---- minimap ---- */
-/* the whole drawing at a glance, bottom-left; the chevron folds it to a nub */
+/* the whole drawing at a glance, top-right. The fold button floats over the
+   map's corner and only shows on hover; folded, the map is just that button. */
 .qd-minimap {
   position: absolute;
-  left: 10px;
-  bottom: 10px;
+  top: 10px;
+  right: 10px;
   z-index: 36;
-  display: flex;
-  align-items: flex-start;
   border-radius: 12px;
   background: var(--qd-bar-bg);
   border: 1px solid var(--qd-border);
@@ -430,28 +429,35 @@
   overflow: hidden;
   transition: background 320ms ease, border-color 320ms ease, box-shadow 320ms ease;
 }
-.qd-minimap-canvas { display: block; width: 180px; height: 120px; cursor: crosshair; }
+/* a hand: you drag the view around on it */
+.qd-minimap-canvas { display: block; width: 180px; height: 120px; cursor: grab; }
+.qd-minimap-canvas.qd-dragging { cursor: grabbing; }
 .qd-minimap.qd-folded .qd-minimap-canvas { display: none; }
 .qd-minimap-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   width: 22px;
   height: 22px;
-  margin: 3px;
   border: none;
   border-radius: 7px;
-  background: transparent;
+  background: var(--qd-bar-bg);
   color: var(--qd-ink-soft);
   cursor: pointer;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  opacity: 0;
+  transition: opacity 140ms ease, background 140ms ease, color 140ms ease;
 }
 .qd-minimap-toggle svg { width: 14px; height: 14px; }
-.qd-minimap-toggle:hover { background: var(--qd-hover); color: var(--qd-ink); }
-/* the centred dock reaches the map's corner on boards under ~1000px: step above it */
-@container (max-width: 1000px) {
-  .qd-minimap { bottom: 58px; }
-}
+.qd-minimap:hover .qd-minimap-toggle, .qd-minimap-toggle:focus-visible { opacity: 1; }
+/* hovering the button itself lights it up like an active dock tool — a
+   translucent tint here would read as the button fading into the map */
+.qd-minimap-toggle:hover { background: var(--qd-on-bg); color: var(--qd-on-ink); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); }
+/* folded: the button is the whole panel */
+.qd-minimap.qd-folded .qd-minimap-toggle { position: static; opacity: 1; width: 30px; height: 30px; border-radius: 11px; }
 
 /* ---- watermark ---- */
 /* Quiet by default, legible on hover; sits under the chrome so popovers and

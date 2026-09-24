@@ -483,7 +483,7 @@ export interface BuildUIOptions {
   themeToggle?: boolean
   /** Show the grid switch in the board menu (default true). */
   gridControl?: boolean
-  /** Show the minimap in the bottom-left corner (default true; hidden on narrow boards regardless). */
+  /** Show the minimap in the top-right corner (default true; hidden on narrow boards regardless). */
   minimap?: boolean
 }
 

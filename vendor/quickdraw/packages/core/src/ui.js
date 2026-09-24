@@ -43,6 +43,8 @@ const ICONS = {
   download: SVG('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>'),
   transparent: SVG('<rect width="18" height="18" x="3" y="3" rx="2"/><rect x="4" y="4" width="8" height="8" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="12" y="12" width="8" height="8" fill="currentColor" fill-opacity=".22" stroke="none"/>'),
   vector: SVG('<path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/><path d="m2.3 2.3 7.286 7.286"/><circle cx="11" cy="11" r="2"/>'),
+  map: SVG('<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>'),
+  minimize: SVG('<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>'),
   copy: SVG('<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/>'),
   fit: SVG('<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>'),
   trash: SVG('<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'),
@@ -739,18 +741,16 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   editor.on('help', toggleHelp)
 
   // ---- minimap -------------------------------------------------------------
-  // A small map of the whole drawing in the bottom-left corner: shapes as
+  // A small map of the whole drawing in the top-right corner: shapes as
   // soft blocks, the viewport as a frame. Click or drag to put the view
-  // there, scroll to zoom, the chevron folds it away. Narrow boards (phones)
-  // go without — the dock needs the room.
+  // there, scroll to zoom; a button floating over its corner folds it down
+  // to just that button. Narrow boards (phones) go without.
   const MM_W = 180, MM_H = 120, MM_PAD = 8
   const mm = el('div', 'qd-minimap')
   const mmCanvas = document.createElement('canvas')
   mmCanvas.className = 'qd-minimap-canvas'
   const mmToggle = el('button', 'qd-minimap-toggle')
-  mmToggle.title = 'Minimap'
   mmToggle.setAttribute('aria-label', 'Toggle minimap')
-  mmToggle.innerHTML = ICONS.chevronLeft
   mm.appendChild(mmCanvas)
   mm.appendChild(mmToggle)
   ui.appendChild(mm)
@@ -801,7 +801,8 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   const layoutMinimap = () => {
     mm.classList.toggle('qd-folded', mmFolded)
     mm.style.display = opts.minimap && (root.clientWidth || 600) >= 560 ? '' : 'none'
-    mmToggle.innerHTML = mmFolded ? ICONS.chevronRight : ICONS.chevronLeft
+    mmToggle.innerHTML = mmFolded ? ICONS.map : ICONS.minimize
+    mmToggle.title = mmFolded ? 'Show minimap' : 'Hide minimap'
     requestMinimap()
   }
   mmToggle.addEventListener('pointerdown', (e) => e.stopPropagation())
@@ -821,10 +822,12 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     e.stopPropagation()
     if (e.button !== 0) return
     try { mmCanvas.setPointerCapture(e.pointerId) } catch {}
+    mmCanvas.classList.add('qd-dragging')
     mmCenterOn(mmPageAt(e), 0)
     const move = (ev) => { if (ev.pointerId === e.pointerId) mmCenterOn(mmPageAt(ev), 0) }
     const up = (ev) => {
       if (ev.pointerId !== e.pointerId) return
+      mmCanvas.classList.remove('qd-dragging')
       mmCanvas.removeEventListener('pointermove', move)
       mmCanvas.removeEventListener('pointerup', up)
       mmCanvas.removeEventListener('pointercancel', up)
