@@ -751,7 +751,17 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   mmCanvas.className = 'qd-minimap-canvas'
   const mmToggle = el('button', 'qd-minimap-toggle')
   mmToggle.setAttribute('aria-label', 'Toggle minimap')
+  // zoom to fit, right where you're looking at the whole drawing anyway
+  const mmFit = el('button', 'qd-minimap-fit')
+  mmFit.title = 'Zoom to fit — ⇧1'
+  mmFit.setAttribute('aria-label', 'Zoom to fit')
+  mmFit.innerHTML = ICONS.fit
+  mmFit.addEventListener('pointerdown', (e) => e.stopPropagation())
+  mmFit.addEventListener('click', (e) => { e.stopPropagation(); editor.fitContent({ animate: 220 }) })
+  // fit at the top-left corner, fold at the top-right, each nudged a little
+  // past the map's edge so they cover less of it
   mm.appendChild(mmCanvas)
+  mm.appendChild(mmFit)
   mm.appendChild(mmToggle)
   ui.appendChild(mm)
   let mmFolded = false
@@ -801,7 +811,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   const layoutMinimap = () => {
     mm.classList.toggle('qd-folded', mmFolded)
     mm.style.display = opts.minimap && (root.clientWidth || 600) >= 560 ? '' : 'none'
-    mmToggle.innerHTML = mmFolded ? ICONS.map : ICONS.minimize
+    mmToggle.innerHTML = mmFolded ? ICONS.map : ICONS.chevronRight
     mmToggle.title = mmFolded ? 'Show minimap' : 'Hide minimap'
     requestMinimap()
   }

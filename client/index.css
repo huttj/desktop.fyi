@@ -964,5 +964,5 @@ img.Avatar {
 
 /* Quickdraw's minimap lives top-right too: sit it under the account bar. */
 .CanvasRoot .qd-minimap {
-  top: 52px;
+  top: 58px;
 }

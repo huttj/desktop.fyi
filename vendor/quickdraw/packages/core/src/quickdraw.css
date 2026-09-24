@@ -426,20 +426,21 @@
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   pointer-events: auto;
-  overflow: hidden;
   transition: background 320ms ease, border-color 320ms ease, box-shadow 320ms ease;
 }
 /* a hand: you drag the view around on it */
-.qd-minimap-canvas { display: block; width: 180px; height: 120px; cursor: grab; }
+.qd-minimap-canvas { display: block; width: 180px; height: 120px; border-radius: 11px; cursor: grab; }
 .qd-minimap-canvas.qd-dragging { cursor: grabbing; }
 .qd-minimap.qd-folded .qd-minimap-canvas { display: none; }
-.qd-minimap-toggle {
+/* the map's own buttons show on hover: zoom to fit sits on the top-left
+   corner, fold on the top-right, each poking a little past the edge so
+   they cover less of the map */
+.qd-minimap-toggle, .qd-minimap-fit {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: -7px;
   width: 22px;
   height: 22px;
-  border: none;
+  border: 1px solid var(--qd-border);
   border-radius: 7px;
   background: var(--qd-bar-bg);
   color: var(--qd-ink-soft);
@@ -451,13 +452,17 @@
   opacity: 0;
   transition: opacity 140ms ease, background 140ms ease, color 140ms ease;
 }
-.qd-minimap-toggle svg { width: 14px; height: 14px; }
-.qd-minimap:hover .qd-minimap-toggle, .qd-minimap-toggle:focus-visible { opacity: 1; }
-/* hovering the button itself lights it up like an active dock tool — a
-   translucent tint here would read as the button fading into the map */
-.qd-minimap-toggle:hover { background: var(--qd-on-bg); color: var(--qd-on-ink); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); }
-/* folded: the button is the whole panel */
-.qd-minimap.qd-folded .qd-minimap-toggle { position: static; opacity: 1; width: 30px; height: 30px; border-radius: 11px; }
+.qd-minimap-fit { left: -7px; }
+.qd-minimap-toggle { right: -7px; }
+.qd-minimap:hover .qd-minimap-toggle, .qd-minimap:hover .qd-minimap-fit,
+.qd-minimap-toggle:focus-visible, .qd-minimap-fit:focus-visible { opacity: 1; }
+.qd-minimap-toggle svg, .qd-minimap-fit svg { width: 14px; height: 14px; }
+/* hovering a button lights it up like an active dock tool — a translucent
+   tint here would read as the button fading into the map */
+.qd-minimap-toggle:hover, .qd-minimap-fit:hover { background: var(--qd-on-bg); color: var(--qd-on-ink); border-color: transparent; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); }
+/* folded: the fold button is the whole panel */
+.qd-minimap.qd-folded .qd-minimap-fit { display: none; }
+.qd-minimap.qd-folded .qd-minimap-toggle { position: static; opacity: 1; width: 30px; height: 30px; border: none; border-radius: 11px; }
 
 /* ---- watermark ---- */
 /* Quiet by default, legible on hover; sits under the chrome so popovers and
