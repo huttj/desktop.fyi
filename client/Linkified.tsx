@@ -16,8 +16,9 @@ export function Linkified({ text }: { text: string }) {
             </a>
           )
         }
+        const ours = /^https?:\/\/(desktop\.fyi|localhost(:\d+)?)(\/|$)/i.test(part)
         return (
-          <a key={i} href={part} target="_blank" rel="noopener noreferrer">
+          <a key={i} href={part} {...(ours ? {} : { target: '_blank', rel: 'noopener noreferrer' })}>
             {part.replace(/^https?:\/\//i, '')}
           </a>
         )

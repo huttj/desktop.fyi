@@ -89,6 +89,9 @@ export class Editor {
     // picks it up (no press, marquee, double-click or context menu), though
     // it still draws, links still open, and the eraser still reaches it.
     this.shapeLocked = null
+    // Host hook: how a followed link opens (default: a new tab). A host can
+    // route its own addresses in place.
+    this.openLink = null
     this.styles = { ...DEFAULT_STYLES, ...(styles || {}) }
     this.geoKind = geoKind || 'rectangle'
     this.tool = 'select' // the pointer, like every desktop drawing tool
@@ -975,7 +978,7 @@ export class Editor {
       case 'pressing': {
         // a clean click on a link follows it (a drag would have replaced
         // this session, so a linked shape still moves)
-        if (ss.link) { this.session = null; openUrl(ss.link); return }
+        if (ss.link) { this.session = null; (this.openLink || openUrl)(ss.link); return }
         // a clean click: selection settles to the pressed shape (or clears);
         // an additive click toggles — unless the down-stroke just added it
         if (ss.hit) this.setSelection(ss.additive ? (ss.added ? [...this.selection] : this._toggled(ss.pick)) : ss.pick)

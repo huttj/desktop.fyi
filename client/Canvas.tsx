@@ -14,6 +14,7 @@ import { StatsDialog } from './StatsDialog'
 import { Viewports } from './Viewports'
 import { installFreshness, type FreshnessState, type LayerView } from './freshness'
 import { installLinkify } from './linkify'
+import { navigate } from './navigate'
 import { nameOf, type People } from './people'
 import { BoardSync, type SyncStatus } from './sync'
 import { TopBar } from './TopBar'
@@ -270,6 +271,8 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
 
       // A tap on a link follows it, whatever the tool: the hand tool never would, and a
       // finger wobbles past Quickdraw's own click threshold on the select tool.
+      // Links to desktop.fyi stay in this tab; anything else opens a new one.
+      ed.openLink = openLink
       installLinkTaps(ed)
       installPasteReporting(ed, setNotice)
 
@@ -463,8 +466,22 @@ function installLinkTaps(ed: Editor) {
     const hit = ed.hitTest(p.x, p.y)
     if (!hit) return
     const link = (ed as unknown as { _linkAt(shape: unknown, p: { x: number; y: number }): string | null })._linkAt(hit, p)
-    if (link) openUrl(link)
+    if (link) openLink(link)
   })
+}
+
+/** Our own addresses navigate in place; the rest open in a new tab. */
+function openLink(href: string) {
+  try {
+    const url = new URL(href, window.location.href)
+    if (url.origin === window.location.origin || url.hostname === 'desktop.fyi') {
+      navigate(url.pathname + url.search + url.hash)
+      return
+    }
+  } catch {
+    /* not a URL we can parse: let Quickdraw judge it */
+  }
+  openUrl(href)
 }
 
 /**
