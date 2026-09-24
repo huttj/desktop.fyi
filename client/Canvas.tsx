@@ -65,6 +65,18 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   const [view, setViewState] = useState<LayerView>('owner')
   const [showHidden, setShowHiddenState] = useState(false)
   const [metaVersion, setMetaVersion] = useState(0)
+  /** Bumped (a beat after) any change to the board, so the feed can catch up. */
+  const [boardChange, setBoardChange] = useState(0)
+  const changeTimer = useRef(0)
+  useEffect(() => {
+    return store.listen(() => {
+      if (changeTimer.current) return
+      changeTimer.current = window.setTimeout(() => {
+        changeTimer.current = 0
+        setBoardChange((n) => n + 1)
+      }, 2500)
+    })
+  }, [store])
   const [notice, setNotice] = useState<string | null>(null)
   const [feedOpen, setFeedOpenState] = useState(() => !!me && (window.location.hash === '#feed' || readPref('dfyi:feed', ['1', '0'], '0') === '1'))
   const setFeedOpen = useCallback((open: boolean) => {
@@ -424,7 +436,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
           Watching {watchedName} · click to stop
         </button>
       )}
-      {feedOpen && me && <FeedPanel me={me} theme={theme} onClose={() => setFeedOpen(false)} />}
+      {feedOpen && me && <FeedPanel me={me} theme={theme} changeKey={boardChange} onClose={() => setFeedOpen(false)} />}
       {notice && <div className="Notice">{notice}</div>}
     </div>
   )

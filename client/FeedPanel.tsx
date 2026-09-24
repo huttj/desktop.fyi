@@ -96,19 +96,46 @@ function titleOf(items: FeedItem[]): string | null {
 /** The last feed fetched, so the panel comes back filled when the desktop changes. */
 let lastFeed: FeedData | null = null
 
-export function FeedPanel({ me, theme, onClose }: { me: Me; theme: 'light' | 'dark'; onClose: () => void }) {
+const REFRESH_MS = 30_000
+
+/**
+ * The feed keeps itself current: every half minute while open, whenever the
+ * board in front of you changes (`changeKey`), and when the tab comes back.
+ */
+export function FeedPanel({ me, theme, changeKey = 0, onClose }: { me: Me; theme: 'light' | 'dark'; changeKey?: number; onClose: () => void }) {
   const [feed, setFeed] = useState<FeedData | null>(lastFeed)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api
-      .feed()
-      .then((f) => {
-        lastFeed = f
-        setFeed(f)
-      })
-      .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load the feed'))
-  }, [])
+    let alive = true
+    let inflight = false
+    const load = () => {
+      if (inflight || document.visibilityState === 'hidden') return
+      inflight = true
+      api
+        .feed()
+        .then((f) => {
+          if (!alive) return
+          lastFeed = f
+          setFeed(f)
+          setError(null)
+        })
+        .catch((e) => alive && setError(e instanceof ApiError ? e.message : 'Could not load the feed'))
+        .finally(() => {
+          inflight = false
+        })
+    }
+    load()
+    const timer = window.setInterval(load, REFRESH_MS)
+    const onVisible = () => document.visibilityState === 'visible' && load()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      alive = false
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+    // changeKey: the board changed under us, fetch again
+  }, [changeKey])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
