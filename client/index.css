@@ -51,6 +51,21 @@ body {
   position: fixed;
   inset: 0;
   width: 100%;
+  /* fingers pan lists and drive the board; they never zoom the page */
+  touch-action: none;
+}
+
+.FeedPanel-body,
+.PeoplePicker,
+.Admin-scroll,
+.Modal {
+  touch-action: pan-y;
+}
+
+input,
+textarea,
+[contenteditable] {
+  touch-action: auto;
 }
 
 body {
