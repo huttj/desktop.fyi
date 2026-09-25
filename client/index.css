@@ -500,6 +500,53 @@ img.Avatar {
   white-space: nowrap;
 }
 
+.Table-person {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.Table-person .Avatar--small {
+  margin: 0;
+}
+
+.Table-actions {
+  white-space: nowrap;
+}
+
+.Table-actions .Link + .Link {
+  margin-left: 16px;
+}
+
+.Modal-card {
+  position: relative;
+}
+
+.Dialog-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.Dialog-close:hover {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.Stats-head {
+  padding-right: 36px;
+}
+
 .PhotoPick {
   display: flex;
   align-items: center;

@@ -2,10 +2,11 @@ import { FormEvent, useEffect, useState } from 'react'
 import type { Me } from '../shared/types'
 import { api, ApiError } from './api'
 import { Avatar } from './Avatar'
+import { CloseButton } from './CloseButton'
 import { PhotoDialog } from './PhotoDialog'
 
 /** Your photo, your name, a line about you. The handle is fixed: it is your desktop's address. */
-export function ProfileDialog({ me, onMeChange, onSignOut, onClose }: { me: Me; onMeChange: (me: Me) => void; onSignOut: () => void; onClose: () => void }) {
+export function ProfileDialog({ me, onMeChange, onClose }: { me: Me; onMeChange: (me: Me) => void; onClose: () => void }) {
   const [name, setName] = useState(me.name ?? '')
   const [bio, setBio] = useState(me.bio ?? '')
   const [busy, setBusy] = useState(false)
@@ -37,6 +38,7 @@ export function ProfileDialog({ me, onMeChange, onSignOut, onClose }: { me: Me; 
   return (
     <div className="Modal" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="Card Modal-card" role="dialog" aria-label="Your profile">
+        <CloseButton onClose={onClose} />
         <div className="PhotoDialog-current">
           <button type="button" className="AvatarButton" onClick={() => setPhotoOpen(true)} title="Change your photo">
             <Avatar id={me.id} name={me.name ?? '?'} avatar={me.avatar} className="Avatar--large" />
@@ -59,13 +61,7 @@ export function ProfileDialog({ me, onMeChange, onSignOut, onClose }: { me: Me; 
             <textarea className="Input Input--area" value={bio} maxLength={160} rows={3} onChange={(e) => setBio(e.target.value)} placeholder="A line or two. Links work. Shows on your desktop." disabled={busy} />
           </label>
           <div className="Modal-actions">
-            <button type="button" className="Link" onClick={onSignOut}>
-              Sign out
-            </button>
             <span className="Modal-spacer" />
-            <button type="button" className="Button Button--ghost" onClick={onClose} disabled={busy}>
-              Close
-            </button>
             <button className="Button" type="submit" disabled={busy}>
               {busy ? 'Saving…' : saved ? 'Saved' : 'Save'}
             </button>

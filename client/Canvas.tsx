@@ -433,7 +433,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       />
       <TopBar me={me} onSignOut={onSignOut} status={status} peers={peers} people={people} feedOpen={feedOpen} onFeed={setFeedOpen} watching={watching} onWatch={setWatching} onOpen={setDialog} />
       {dialog === 'stats' && me && <StatsDialog me={me} onClose={() => setDialog(null)} />}
-      {dialog === 'profile' && me && onMeChange && <ProfileDialog me={me} onMeChange={onMeChange} onSignOut={onSignOut} onClose={() => setDialog(null)} />}
+      {dialog === 'profile' && me && onMeChange && <ProfileDialog me={me} onMeChange={onMeChange} onClose={() => setDialog(null)} />}
       {dialog === 'people' && me?.isAdmin && <AdminDialog me={me} onClose={() => setDialog(null)} />}
       {watchedName && (
         <button type="button" className="Notice Notice--button" onClick={() => setWatching(null)} onPointerDown={(e) => e.stopPropagation()}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Me, UserSummary } from '../shared/types'
 import { api, ApiError } from './api'
 import { Avatar } from './Avatar'
+import { CloseButton } from './CloseButton'
 
 /** Admins: everyone who has signed in, with a way to run a desktop's daily pass or remove someone. */
 export function AdminDialog({ me, onClose }: { me: Me; onClose: () => void }) {
@@ -47,6 +48,7 @@ export function AdminDialog({ me, onClose }: { me: Me; onClose: () => void }) {
   return (
     <div className="Modal" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="Card Card--wide Modal-card" role="dialog" aria-label="People">
+        <CloseButton onClose={onClose} />
         <div className="Stats-head">
           <strong>People</strong>
           <span className="Muted">Everyone who has signed in. "Run decay" runs a desktop's daily pass now.</span>
@@ -81,7 +83,7 @@ export function AdminDialog({ me, onClose }: { me: Me; onClose: () => void }) {
                         <button className="Link" onClick={() => runDecay(u)}>
                           Run decay
                         </button>
-                      )}{' '}
+                      )}
                       {!u.isAdmin && u.id !== me.id && (
                         <button className="Link Link--danger" onClick={() => remove(u)}>
                           Remove
@@ -94,12 +96,6 @@ export function AdminDialog({ me, onClose }: { me: Me; onClose: () => void }) {
             </table>
           </div>
         )}
-        <div className="Modal-actions">
-          <span className="Modal-spacer" />
-          <button type="button" className="Button Button--ghost" onClick={onClose}>
-            Close
-          </button>
-        </div>
       </div>
     </div>
   )

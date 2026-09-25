@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { DesktopStats, Me, Profile } from '../shared/types'
 import { api, ApiError } from './api'
+import { CloseButton } from './CloseButton'
 
 /** A small card of who has been looking at your desktop, and who follows it. Only you see it. */
 export function StatsDialog({ me, onClose }: { me: Me; onClose: () => void }) {
@@ -23,6 +24,7 @@ export function StatsDialog({ me, onClose }: { me: Me; onClose: () => void }) {
   return (
     <div className="Modal" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="Card Modal-card Stats" role="dialog" aria-label="Your desktop's stats">
+        <CloseButton onClose={onClose} />
         <div className="Stats-head">
           <strong>Your desktop</strong>
           <span className="Muted">Only you can see this</span>
@@ -39,12 +41,6 @@ export function StatsDialog({ me, onClose }: { me: Me; onClose: () => void }) {
             {profile && <Stat n={profile.liveItems} label={`thing${profile.liveItems === 1 ? '' : 's'} on it`} />}
           </div>
         )}
-        <div className="Modal-actions">
-          <span className="Modal-spacer" />
-          <button type="button" className="Button Button--ghost" onClick={onClose}>
-            Close
-          </button>
-        </div>
       </div>
     </div>
   )
