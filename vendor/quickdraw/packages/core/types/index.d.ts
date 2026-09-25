@@ -219,6 +219,8 @@ export class TextSurface {
 export function normalizeText(text: string): string
 /** Follow a link from the board: a new tab, http(s) and mailto only. */
 export function openUrl(href: string): void
+/** Keep the browser out of the way: no pinch or double-tap zooming the page, an unscrollable document, scroll pinned to the top. Returns an undo. */
+export function lockPage(opts?: { zoom?: boolean; scroll?: boolean }): () => void
 /** The full source picture of an image shape, laid out in the shape's local frame (crop undone). */
 export function imageFrame(shape: ShapeRecord): Bounds
 /** Render one shape into a 2d context already transformed to page space. */
@@ -410,6 +412,8 @@ export class Editor {
   contentBounds(): Bounds | null
   fitContent(opts?: { margin?: number; maxZoom?: number; animate?: number; ease?: number }): void
   followBounds(b: Bounds, opts?: { animate?: number; ease?: number }): void
+  /** Frame these shapes (fit, never past 1:1, and select them unless the hand is up); `inset` is what the host's chrome covers, in screen px. False when none is on the board. */
+  frameShapes(ids: string[], opts?: { animate?: number; inset?: { left?: number; top?: number; right?: number; bottom?: number }; maxZoom?: number }): boolean
   /** Back to 1:1 about the middle of the view (⇧0). */
   resetZoom(opts?: { animate?: number }): void
 
@@ -483,6 +487,10 @@ export class Editor {
 
   // laser scribbles (live pointer trails, not part of the document)
   setRemoteScribbles(list: ScribbleStroke[]): void
+  /** Other people's pointers, in page coordinates; drawn on the overlay so they ride the camera exactly. */
+  setRemoteCursors(list: Array<{ id: string; x: number; y: number; color?: string; label?: string }>): void
+  /** ⌘B & co. on a selection: every text in it takes the mark over its whole text, or loses it when all already carry it. False when nothing there has text. */
+  toggleMarkOnSelection(key: 'b' | 'i' | 'u' | 's' | 'code' | 'hl', value?: boolean): boolean
   getScribbles(): ScribbleStroke[]
 
   // clipboard / images

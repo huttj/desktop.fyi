@@ -770,11 +770,12 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
 
   // ---- text formatting bar -------------------------------------------------
   // While text is being edited, a small bar floats above it: bold, italic,
-  // underline, strike, code, highlight, link. It mirrors the style at the
-  // caret and applies to the selection (or to what's typed next).
+  // underline, strike, link. It mirrors the style at the caret and applies
+  // to the selection (or to what's typed next). (Code and highlight runs
+  // still draw if a document carries them; the highlighter is the tool.)
   const FMT = [
     ['b', '<b>B</b>', 'Bold — ⌘B'], ['i', '<i>I</i>', 'Italic — ⌘I'], ['u', '<u>U</u>', 'Underline — ⌘U'],
-    ['s', '<s>S</s>', 'Strikethrough — ⇧⌘X'], ['code', '&lt;/&gt;', 'Code — ⌘E'], ['hl', '<span class="qd-fmt-hl">ab</span>', 'Highlight — ⇧⌘H'],
+    ['s', '<s>S</s>', 'Strikethrough — ⇧⌘X'],
     ['href', ICONS.link, 'Link — ⌘K'],
   ]
   const fmt = el('div', 'qd-fmt')

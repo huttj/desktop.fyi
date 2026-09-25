@@ -112,6 +112,7 @@ export class Editor {
     this.scribbles = [] // local laser strokes
     this.remoteScribbles = []
     this.remoteScribblesAt = 0
+    this.remoteCursors = []
     this.spaceHeld = false
     this.captureCanvas = null
     // pen mode: once a stylus is seen, fingers stop drawing — a resting palm
@@ -271,6 +272,24 @@ export class Editor {
       return
     }
     this._easeToFit(fitNow, ease)
+  }
+  // Frame some shapes: the camera fits them (never past 1:1) and, unless the
+  // hand is up, selects them. `inset` is what a host's chrome covers, in
+  // screen pixels ({ left, top, right, bottom }), so the shapes land in the
+  // space that is really free. Returns false when none of them is on the board.
+  frameShapes(ids, { animate = 0, inset = {}, maxZoom = 1 } = {}) {
+    const present = ids.filter((id) => this.shapesSorted().some((s) => s.id === id))
+    if (!present.length) return false
+    let b = null
+    for (const id of present) b = boundsUnion(b, pageBounds(this.store.get(id)))
+    const { w: fullW, h: fullH } = this.viewSize()
+    const il = inset.left || 0, it = inset.top || 0
+    const w = fullW - il - (inset.right || 0), h = fullH - it - (inset.bottom || 0)
+    const pad = Math.min(240, Math.max(60, Math.min(w, h) * 0.2))
+    const z = clamp(Math.min(maxZoom, w / (b.w + pad), h / (b.h + pad)), ZOOM_MIN, ZOOM_MAX)
+    this.setCamera({ z, x: w / (2 * z) - (b.x + b.w / 2) + il / z, y: h / (2 * z) - (b.y + b.h / 2) + it / z }, { animate })
+    if (this.tool !== 'hand') this.setSelection(present)
+    return true
   }
   // true (and remembers the retry) while the container has no layout yet;
   // render() replays the latest pending fit once real dimensions appear
@@ -1174,6 +1193,13 @@ export class Editor {
     this._laserRaf = requestAnimationFrame(tick)
   }
   // remote laser (a collaborator's) — drawn like ours, kept fresh by the caller
+  // Other people's pointers: [{ id, x, y (page), color, label }]. Drawn on the
+  // overlay in page space, so they ride the camera exactly; hosts smooth the
+  // positions they feed in if they want gliding.
+  setRemoteCursors(list) {
+    this.remoteCursors = list || []
+    this.requestRender()
+  }
   setRemoteScribbles(list) {
     this.remoteScribbles = list || []
     this.remoteScribblesAt = performance.now()
@@ -1398,12 +1424,11 @@ export class Editor {
         this.container.focus({ preventScroll: true })
         return
       }
-      // formatting, tldraw's keys: ⌘B / ⌘I / ⌘U, ⇧⌘X strike, ⌘E code,
-      // ⇧⌘H highlight, ⌘K link
+      // formatting, tldraw's keys: ⌘B / ⌘I / ⌘U, ⇧⌘X strike, ⌘K link
       const meta = e.metaKey || e.ctrlKey
       if (!meta || e.altKey) return
       const k = e.key.toLowerCase()
-      const key = e.shiftKey ? { x: 's', h: 'hl' }[k] : { b: 'b', i: 'i', u: 'u', e: 'code' }[k]
+      const key = e.shiftKey ? { x: 's' }[k] : { b: 'b', i: 'i', u: 'u' }[k]
       if (key) { e.preventDefault(); this.toggleMark(key); return }
       if (k === 'k' && !e.shiftKey) { e.preventDefault(); this.promptLink() }
     })
@@ -1538,6 +1563,26 @@ export class Editor {
   }
   // toggle a mark (b, i, u, s, code, hl) over the selection; with nothing
   // selected it applies to what's typed next
+  // Every text in the selection takes the mark over its whole text — or loses
+  // it, when all of them already carry it. Returns false when nothing there has text.
+  toggleMarkOnSelection(key, value = true) {
+    const targets = []
+    for (const id of this.selection) {
+      const s = this.store.get(id)
+      if (!s) continue
+      if ((s.type === 'text' || s.type === 'note') && s.props.text) targets.push([s, 'text', 'marks'])
+      else if (s.type === 'geo' && s.props.label) targets.push([s, 'label', 'labelMarks'])
+    }
+    if (!targets.length) return false
+    const allOn = targets.every(([s, tk, mk]) => hasMark(s.props[mk], 0, s.props[tk].length, key))
+    this.store.transact(() => {
+      for (const [s, tk, mk] of targets) {
+        const next = setMark(s.props[mk] || [], 0, s.props[tk].length, key, !allOn, value)
+        this.store.update(s.id, { props: { [mk]: next.length ? next : undefined } })
+      }
+    })
+    return true
+  }
   toggleMark(key, value = true) {
     const ed = this.editing
     if (!ed) return
@@ -2305,6 +2350,11 @@ export class Editor {
     if (meta && k === 'd') { e.preventDefault(); this.duplicateSelection(); return }
     if (meta && k === 'g') { e.preventDefault(); e.shiftKey ? this.ungroupSelection() : this.groupSelection(); return }
     if (meta && k === 'c') { e.preventDefault(); this.copySelection(); return }
+    {
+      // ⌘B / ⌘I / ⌘U / ⇧⌘X on selected text styles all of it; again undoes it
+      const mark = e.shiftKey ? { x: 's' }[k] : { b: 'b', i: 'i', u: 'u' }[k]
+      if (meta && mark && this.toggleMarkOnSelection(mark)) { e.preventDefault(); return }
+    }
     if (meta && k === 'x') { e.preventDefault(); this.copySelection().then(() => this.deleteSelection()); return }
     // ⌘V is left to the browser: its paste event brings files, HTML and text
     // without a permission prompt, and lands in _paste
@@ -3091,6 +3141,36 @@ export class Editor {
       ctx.stroke()
       ctx.globalAlpha = 1
       ctx.shadowBlur = 0
+    }
+
+    // other people's pointers: an arrow in their colour, their name on a pill
+    for (const c of this.remoteCursors) {
+      if (!isFinite(c.x) || !isFinite(c.y)) continue
+      const p = this.pageToScreen(c.x, c.y)
+      const color = c.color || '#7b66dc'
+      ctx.save()
+      ctx.translate(p.x, p.y)
+      ctx.beginPath()
+      ctx.moveTo(0, 0); ctx.lineTo(14, 6.5); ctx.lineTo(7.5, 8); ctx.lineTo(5, 14); ctx.closePath()
+      ctx.fillStyle = color
+      ctx.strokeStyle = '#fff'
+      ctx.lineWidth = 1.2
+      ctx.lineJoin = 'round'
+      ctx.fill()
+      ctx.stroke()
+      if (c.label) {
+        ctx.font = '600 11px Inter, system-ui, sans-serif'
+        const tw = ctx.measureText(c.label).width
+        const bx = 14, by = 16, bw = tw + 12, bh = 17
+        ctx.beginPath()
+        ctx.roundRect(bx, by, bw, bh, 6)
+        ctx.fillStyle = color
+        ctx.fill()
+        ctx.fillStyle = '#fff'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(c.label, bx + 6, by + bh / 2 + 0.5)
+      }
+      ctx.restore()
     }
   }
 

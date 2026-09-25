@@ -1,4 +1,4 @@
-import { pageBounds, type Bounds, type Editor } from '@quickdrawjs/core'
+import type { Editor } from '@quickdrawjs/core'
 
 /** A shareable view: the page point at the middle of the screen plus zoom, or one or more items to frame. */
 export type View = { kind: 'camera'; x: number; y: number; z: number } | { kind: 'items'; ids: string[] }
@@ -30,13 +30,6 @@ export function formatView(view: { x: number; y: number; z: number }) {
   return `#v=${view.x.toFixed(1)},${view.y.toFixed(1)},${view.z.toFixed(3)}`
 }
 
-function union(a: Bounds | null, b: Bounds): Bounds {
-  if (!a) return b
-  const x = Math.min(a.x, b.x)
-  const y = Math.min(a.y, b.y)
-  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y }
-}
-
 /**
  * Applies a deep link. Items are framed together (centred, zoomed to fit, selected).
  * Returns false when it names items that are not on the board (for this viewer).
@@ -58,17 +51,8 @@ export function applyView(editor: Editor, view: View, { animate = 0, inset = {} 
     editor.setCamera({ x: w / (2 * view.z) - view.x + insetLeft / view.z, y: h / (2 * view.z) - view.y + insetTop / view.z, z: view.z }, { animate })
     return true
   }
-  const present = view.ids.filter((id) => editor.shapesSorted().some((s) => s.id === id))
-  if (!present.length) return false
-  let b: Bounds | null = null
-  for (const id of present) b = union(b, pageBounds(editor.store.get(id) as Parameters<typeof pageBounds>[0]))
-  const box = b!
-  const pad = Math.min(240, Math.max(60, Math.min(w, h) * 0.2))
-  const z = Math.max(0.1, Math.min(1, Math.min(w / (box.w + pad), h / (box.h + pad))))
-  editor.setCamera({ x: w / (2 * z) - (box.x + box.w / 2) + insetLeft / z, y: h / (2 * z) - (box.y + box.h / 2) + insetTop / z, z }, { animate })
-  // the hand only looks; the pointer picks things up
-  if (editor.tool !== 'hand') editor.setSelection(present)
-  return true
+  // Quickdraw frames them in the space the chrome leaves, and selects them unless the hand is up
+  return editor.frameShapes(view.ids, { animate, inset })
 }
 
 export function viewLink(editor: Editor) {
