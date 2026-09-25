@@ -625,7 +625,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   function exportRows(p, ids) {
     const what = ids ? 'selection' : 'board'
     subRow(p, {
-      icon: ICONS.download, label: 'Export ' + what,
+      icon: ICONS.download, label: 'Export ' + what + ' as',
       build: (sub) => {
         menuItem(sub, 'image', 'PNG', null, () => saveImage(true, ids))
         menuItem(sub, 'transparent', 'Transparent PNG', null, () => saveImage(false, ids))
