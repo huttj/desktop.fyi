@@ -502,12 +502,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     }
 
     const hasSel = editor.selection.size > 0
-    item('download', 'Export as PNG', null, () => saveImage(true, null))
-    item('transparent', 'Export — transparent', null, () => saveImage(false, null))
-    item('vector', 'Export as SVG', null, () => saveImage(true, null, 'svg'))
-    if (hasSel) item('image', 'Export selection', null, () => saveImage(true, new Set(editor.selection)))
-    if (hasSel) item('vector', 'Export selection as SVG', null, () => saveImage(true, new Set(editor.selection), 'svg'))
-    item('copy', hasSel ? 'Copy selection as image' : 'Copy as image', null, () => copyImage(hasSel ? new Set(editor.selection) : null))
+    exportRows(p, hasSel ? new Set(editor.selection) : null)
     p.appendChild(el('i', 'qd-menu-div'))
     if (hasSel) item('trash', 'Delete selection', '⌫', () => editor.deleteSelection())
     item('fit', 'Zoom to fit', '⇧1', () => editor.fitContent({ animate: 220 }))
@@ -578,9 +573,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       item('fit', 'Zoom to fit', '⇧1', () => editor.fitContent({ animate: 220 }))
       item('zoomReset', 'Reset zoom', '⇧0', () => editor.resetZoom({ animate: 180 }))
       divider()
-      item('download', 'Export as PNG', null, () => saveImage(true, null))
-      item('vector', 'Export as SVG', null, () => saveImage(true, null, 'svg'))
-      item('copy', 'Copy as image', null, () => copyImage(null))
+      exportRows(p, null)
       divider()
       item('trash', 'Clear board', '⇧⌘⌫', () => editor.clearBoard(), editor.store.shapes().length > 0)
       return
@@ -625,9 +618,28 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     // one shape (or one group) has nothing to line up with
     alignRowEl.classList.toggle('qd-off', units < 2)
     divider()
-    item('image', 'Export selection', null, () => saveImage(true, new Set(sel)))
-    item('vector', 'Export selection as SVG', null, () => saveImage(true, new Set(sel), 'svg'))
-    item('copy', 'Copy as image', null, () => copyImage(new Set(sel)))
+    exportRows(p, new Set(sel))
+  }
+  // "Export ▸" and "Copy as ▸", the same everywhere: the selection when there
+  // is one, else the whole board; each offers PNG, transparent PNG and SVG.
+  function exportRows(p, ids) {
+    const what = ids ? 'selection' : 'board'
+    subRow(p, {
+      icon: ICONS.download, label: 'Export ' + what,
+      build: (sub) => {
+        menuItem(sub, 'image', 'PNG', null, () => saveImage(true, ids))
+        menuItem(sub, 'transparent', 'Transparent PNG', null, () => saveImage(false, ids))
+        menuItem(sub, 'vector', 'SVG', null, () => saveImage(true, ids, 'svg'))
+      },
+    })
+    subRow(p, {
+      icon: ICONS.copy, label: 'Copy ' + what + ' as',
+      build: (sub) => {
+        menuItem(sub, 'image', 'PNG', null, () => copyImage(ids, true))
+        menuItem(sub, 'transparent', 'Transparent PNG', null, () => copyImage(ids, false))
+        menuItem(sub, 'vector', 'SVG', null, () => copyImage(ids, true, 'svg'))
+      },
+    })
   }
   function openContextMenu(x, y) {
     closePopover()
@@ -649,8 +661,14 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     refresh()
   }
 
-  async function copyImage(ids) {
-    const blob = await editor.exportImage({ background: true, ids })
+  // to the clipboard: a PNG (with or without the paper), or the SVG as text
+  async function copyImage(ids, background = true, format = 'png') {
+    if (format === 'svg') {
+      const svg = editor.exportSvg({ background, ids })
+      if (svg) await navigator.clipboard.writeText(svg)
+      return
+    }
+    const blob = await editor.exportImage({ background, ids })
     if (blob) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
   }
   // format: 'png' (a raster of the board) or 'svg' (its vectors)

@@ -2847,6 +2847,28 @@ export class Editor {
   }
 
   // a 9px handle square at a screen point, turned with its shape
+  _drawCropMark(ctx, h, which, rot, t) {
+    const L = 14, W = 3
+    ctx.save()
+    ctx.translate(h.x, h.y)
+    if (rot) ctx.rotate(rot)
+    ctx.lineCap = 'butt'
+    ctx.lineJoin = 'miter'
+    ctx.beginPath()
+    if (which.length === 2) {
+      // a bracket hugging the corner, its arms running along the two edges
+      const sx = which.includes('l') ? 1 : -1, sy = which.includes('t') ? 1 : -1
+      ctx.moveTo(sx * L, 0); ctx.lineTo(0, 0); ctx.lineTo(0, sy * L)
+    } else if (which === 't' || which === 'b') { ctx.moveTo(-L / 2, 0); ctx.lineTo(L / 2, 0) }
+    else { ctx.moveTo(0, -L / 2); ctx.lineTo(0, L / 2) }
+    ctx.strokeStyle = t.id === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.9)'
+    ctx.lineWidth = W + 2
+    ctx.stroke()
+    ctx.strokeStyle = t.selection
+    ctx.lineWidth = W
+    ctx.stroke()
+    ctx.restore()
+  }
   _drawHandle(ctx, h, rot) {
     ctx.save()
     ctx.translate(h.x, h.y)
@@ -2885,7 +2907,9 @@ export class Editor {
       ctx.lineWidth = 1.5
       trace(quad(0, 0, cropImg.props.w, cropImg.props.h))
       ctx.stroke()
-      for (const [, h] of this._boxHandles(cropImg)) this._drawHandle(ctx, h, cropImg.rot)
+      // crop marks, not resize handles: brackets at the corners, ticks on the
+      // sides — the sign that this box is a window, not the picture
+      for (const [which, h] of this._boxHandles(cropImg)) this._drawCropMark(ctx, h, which, cropImg.rot || 0, t)
     }
 
     // groups: a dashed frame around each selected group, and around the
