@@ -39,23 +39,31 @@ export function approxBounds(rec: BoardRecord): { x: number; y: number; w: numbe
       const lines = text.split('\n')
       const size = { s: 18, m: 24, l: 36, xl: 44 }[String(p.size)] ?? 24
       const scale = num(p.scale) || 1
-      const charW = size * 0.55
+      // the box's scale sets the type size, so it also sets how much fits on a line
+      const charW = size * 0.55 * scale
+      const lineH = size * 1.32 * scale
       if (p.autosize === false && num(p.w) > 0) {
         // a fixed-width text wraps: count the lines it needs at that width
         w = num(p.w)
         const perLine = Math.max(1, Math.floor(w / charW))
         const wrapped = lines.reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0)
-        h = wrapped * size * 1.32 * scale
+        h = wrapped * lineH
       } else {
         const longest = lines.reduce((m, l) => Math.max(m, l.length), 0)
-        w = longest * charW * scale
-        h = lines.length * size * 1.32 * scale
+        w = longest * charW
+        h = lines.length * lineH
       }
       break
     }
     case 'note': {
+      // the classic square, or the box it was resized to; never shorter than its words
       const scale = num(p.scale) || 1
-      w = 200 * scale; h = 200 * scale
+      const boxW = num(p.w) || 200
+      const text = typeof p.text === 'string' ? p.text : ''
+      const perLine = Math.max(1, Math.floor((boxW - 40) / (24 * 0.55)))
+      const wrapped = text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0)
+      w = boxW * scale
+      h = Math.max(num(p.h) || boxW, wrapped * 24 * 1.35 + 40) * scale
       break
     }
     default: {
