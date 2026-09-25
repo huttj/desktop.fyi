@@ -24,6 +24,9 @@ const RESIZE_CURSORS = {
   t: 'ns-resize', b: 'ns-resize', l: 'ew-resize', r: 'ew-resize',
 }
 const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', font: 'draw', align: 'start' }
+// what a tool starts with before you have touched its styles: the highlighter
+// is a fat yellow marker, everything else takes the board's defaults
+const TOOL_STYLE_DEFAULTS = { highlight: { color: 'yellow', size: 'l' } }
 // the eight box handles as fractions of a box — crop mode and the rotated
 // resize frame both hang theirs here
 const BOX_HANDLES = {
@@ -100,6 +103,10 @@ export class Editor {
     // route its own addresses in place.
     this.openLink = null
     this.styles = { ...DEFAULT_STYLES, ...(styles || {}) }
+    // each tool remembers its own styles: the pen's black dotted line, the
+    // highlighter's fat yellow, the text tool's font — switching tools
+    // brings that tool's last choices back
+    this._toolStyles = {}
     this.geoKind = geoKind || 'rectangle'
     this.tool = 'select' // the pointer, like every desktop drawing tool
     this.selection = new Set()
@@ -337,6 +344,11 @@ export class Editor {
     if (!TOOLS.includes(tool)) return
     this._commitText()
     this.endCrop()
+    if (tool !== this.tool) {
+      this._toolStyles[this.tool] = { ...this.styles }
+      const remembered = this._toolStyles[tool] || TOOL_STYLE_DEFAULTS[tool]
+      if (remembered) { this.styles = { ...this.styles, ...remembered }; this.emit('styles') }
+    }
     this.tool = tool
     if (tool !== 'select') this.setSelection([])
     this._syncCursor()
