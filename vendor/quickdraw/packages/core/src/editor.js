@@ -107,6 +107,7 @@ export class Editor {
     // highlighter's fat yellow, the text tool's font — switching tools
     // brings that tool's last choices back
     this._toolStyles = {}
+    this._baseStyles = { ...this.styles } // what an untouched tool starts from
     this.geoKind = geoKind || 'rectangle'
     this.tool = 'select' // the pointer, like every desktop drawing tool
     this.selection = new Set()
@@ -346,8 +347,11 @@ export class Editor {
     this.endCrop()
     if (tool !== this.tool) {
       this._toolStyles[this.tool] = { ...this.styles }
-      const remembered = this._toolStyles[tool] || TOOL_STYLE_DEFAULTS[tool]
-      if (remembered) { this.styles = { ...this.styles, ...remembered }; this.emit('styles') }
+      // a tool you have used comes back as you left it; one you have not
+      // starts from the board's defaults (the highlighter's: fat and yellow)
+      const remembered = this._toolStyles[tool] || { ...this._baseStyles, ...(TOOL_STYLE_DEFAULTS[tool] || {}) }
+      this.styles = { ...this.styles, ...remembered }
+      this.emit('styles')
     }
     this.tool = tool
     if (tool !== 'select') this.setSelection([])
