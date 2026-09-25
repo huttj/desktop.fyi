@@ -3,19 +3,24 @@ import { useEffect, useReducer } from 'react'
 import type { Peer } from '../shared/protocol'
 import { colorFor, nameOf, type People } from './people'
 
-/** Everyone else's pointer, in their colour, with their name (visitors in grey). */
+/**
+ * Everyone else's pointer, in their colour, with their name (visitors in grey).
+ * Cursors sit in page coordinates on a layer that carries the camera, so
+ * panning moves them with the board, instantly; only a person's own movement
+ * glides.
+ */
 export function Cursors({ editor, peers, people }: { editor: Editor; peers: Peer[]; people: People }) {
   const [, rerender] = useReducer((n: number) => n + 1, 0)
   useEffect(() => editor.on('camera', rerender), [editor])
 
+  const cam = editor.camera
   return (
-    <div className="Cursors">
+    <div className="Cursors" style={{ transform: `translate(${cam.x * cam.z}px, ${cam.y * cam.z}px) scale(${cam.z})` }}>
       {peers.map((peer) => {
         if (!peer.cursor) return null
-        const s = editor.pageToScreen(peer.cursor.x, peer.cursor.y)
         const color = peer.userId ? colorFor(peer.userId) : '#9a958b'
         return (
-          <div key={peer.sessionId} className="Cursor" style={{ transform: `translate(${s.x}px, ${s.y}px)` }}>
+          <div key={peer.sessionId} className="Cursor" style={{ translate: `${peer.cursor.x}px ${peer.cursor.y}px`, scale: `${1 / cam.z}` }}>
             <svg width="18" height="18" viewBox="0 0 18 18">
               <path d="M2 2 L16 8.5 L9.5 10 L7 16 Z" fill={color} stroke="#fff" strokeWidth="1.2" strokeLinejoin="round" />
             </svg>

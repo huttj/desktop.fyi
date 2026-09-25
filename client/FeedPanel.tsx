@@ -25,8 +25,8 @@ interface Group {
   title: string | null
 }
 
-/** Boxes closer than this (page units) belong to the same cluster; bigger things reach a little further. */
-const CLUSTER_GAP = 160
+/** Boxes closer than this (page units) belong to the same cluster; bigger things reach a touch further. */
+const CLUSTER_GAP = 110
 
 /**
  * Clusters run over everything placed on a desktop, not only the things in
@@ -56,7 +56,7 @@ function clusterItems(items: FeedItem[], placedByBoard: Record<string, PlacedIte
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i]!, b = nodes[j]!
-        const reach = CLUSTER_GAP + 0.15 * Math.min(Math.max(a.w, a.h), Math.max(b.w, b.h))
+        const reach = CLUSTER_GAP + 0.04 * Math.min(Math.max(a.w, a.h), Math.max(b.w, b.h))
         if (gapBetween(a, b) <= reach) parent[find(i)] = find(j)
       }
     }
