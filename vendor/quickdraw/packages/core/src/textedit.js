@@ -93,7 +93,8 @@ export class TextSurface {
       if (node.nodeType === 3) {
         const from = text.length
         text += node.nodeValue
-        if (Object.keys(st).length && node.nodeValue.length) marks.push({ from, to: text.length, ...st })
+        // the run's style, then its place: a stale from/to riding in the style must not win
+        if (Object.keys(st).length && node.nodeValue.length) marks.push({ ...st, from, to: text.length })
         return
       }
       if (node.nodeType !== 1) return
@@ -121,7 +122,8 @@ export class TextSurface {
       const str = this._text.slice(s, e)
       if (!Object.keys(st).length) { frag.appendChild(document.createTextNode(str)); continue }
       const span = document.createElement('span')
-      span.dataset.mk = JSON.stringify(st)
+      const { from: _f, to: _t, ...style } = st // the style alone: its place is where it sits in the DOM
+      span.dataset.mk = JSON.stringify(style)
       span.setAttribute('style', STYLE_OF(st, this.hlColor))
       span.textContent = str
       frag.appendChild(span)
@@ -195,9 +197,21 @@ export class TextSurface {
     this._fire()
   }
   _afterInput() {
-    const { text, marks } = this.read()
+    const { text, marks: read } = this.read()
     const sel = this.selection()
     this._pushUndo()
+    // Typed text takes the style of what came before it: the model's rule
+    // (a run extends when you type at its end). The browser may have put the
+    // new characters just outside the run's span, which would read as plain;
+    // when it styled them itself (a rich paste, its own bold), that stands.
+    let marks = read
+    if (text.length > this._text.length) {
+      let a = 0
+      while (a < this._text.length && a < text.length && this._text[a] === text[a]) a++
+      const b = a + (text.length - this._text.length)
+      const styledInside = read.some((m) => m.from < b && m.to > a)
+      if (!styledInside) marks = mapMarks(this._marks, this._text, text) || []
+    }
     this.render(text, marks, sel)
     this._fire()
   }
