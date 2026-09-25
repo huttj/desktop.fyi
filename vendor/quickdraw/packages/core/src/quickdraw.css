@@ -16,6 +16,10 @@
   outline: none;
   background: #fbf9f4;
   touch-action: none;
+  /* a long press is for the board's own menu, not the browser's text selection */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   border-radius: inherit;
   transition: background 320ms ease;
   /* lets the watermark dodge the dock on narrow boards (see below) */
@@ -107,7 +111,6 @@
   border: 1px solid var(--qd-border);
   box-shadow: var(--qd-bar-shadow);
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   pointer-events: auto;
   transition: background 320ms ease, border-color 320ms ease, box-shadow 320ms ease;
 }
@@ -136,7 +139,6 @@
   border: 1px solid var(--qd-border);
   box-shadow: var(--qd-bar-shadow);
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   pointer-events: auto;
   transition: background 320ms ease, border-color 320ms ease, box-shadow 320ms ease;
 }
@@ -202,7 +204,6 @@
   border: 1px solid var(--qd-border);
   box-shadow: var(--qd-pop-shadow);
   backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   pointer-events: auto;
   padding: 8px;
   max-width: calc(100% - 16px);
@@ -372,7 +373,6 @@
   border: 1px solid var(--qd-border);
   box-shadow: var(--qd-pop-shadow);
   backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   animation: qd-sub-in 130ms ease;
 }
 .qd-has-sub.sub-open .qd-submenu { display: flex; }
@@ -434,7 +434,6 @@
   border: 1px solid var(--qd-border);
   box-shadow: var(--qd-pop-shadow);
   backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   pointer-events: auto;
 }
 .qd-fmt-btn {
@@ -473,7 +472,6 @@
   border: 1px solid var(--qd-border);
   box-shadow: var(--qd-bar-shadow);
   backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   pointer-events: auto;
   transition: background 320ms ease, border-color 320ms ease, box-shadow 320ms ease;
 }

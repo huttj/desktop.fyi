@@ -915,7 +915,7 @@ export class Editor {
       case 'handle': return this._dragHandle(p, e)
       case 'cropping': return this._dragCrop(p, e)
       case 'pressing': {
-        if (Math.hypot(s.x - ss.start.x, s.y - ss.start.y) > 4) {
+        if (Math.hypot(s.x - ss.start.x, s.y - ss.start.y) > (e.pointerType === 'touch' ? 12 : 4)) {
           // the press became a drag — start translating (alt = drag a copy);
           // a linked shape held for a drag gets selected now
           if (ss.link && ss.hit && !this.selection.has(ss.hit.id)) this.setSelection(ss.pick)
@@ -946,9 +946,19 @@ export class Editor {
         this.session = null
         this._syncCursor()
         // a still tap beside the text while typing ends the edit; a drag only moved the view
-        if (ss.editing && ss.pressAt) {
+        if (ss.pressAt) {
           const s = this._evPoint(e)
-          if (Math.hypot(s.x - ss.pressAt.x, s.y - ss.pressAt.y) < 6) this._commitText()
+          const still = Math.hypot(s.x - ss.pressAt.x, s.y - ss.pressAt.y) < (e.pointerType === 'touch' ? 12 : 6)
+          if (ss.editing) {
+            // a still tap beside the text while typing ends the edit; a drag only moved the view
+            if (still) this._commitText()
+          } else if (still && this.tool === 'hand') {
+            // the hand follows a link it taps, like the pointer does
+            const p = this.screenToPage(s.x, s.y)
+            const hit = this.hitTest(p.x, p.y)
+            const link = hit && this._linkAt(hit, p)
+            if (link) (this.openLink || openUrl)(link)
+          }
         }
         return
       }
@@ -2457,29 +2467,39 @@ export class Editor {
   // Programmatic paste (a menu item; ⌘V goes through the browser's own
   // paste event, which needs no permission). Images first, then HTML — that's
   // where tldraw keeps its shapes — then text: our payload, or plain words.
+  // Resolves with what happened: { what: 'image' | 'html' | 'text' | 'nothing' | 'error', types, error }.
+  // A phone only hands the clipboard over after its own confirmation, and some
+  // copies carry nothing the board can place; the host can say so.
   async pasteFromClipboard() {
+    const cb = navigator.clipboard
+    if (!cb || (!cb.read && !cb.readText)) return { what: 'error', types: [], error: new Error('no clipboard access') }
+    let types = []
     try {
-      if (navigator.clipboard.read) {
-        const items = await navigator.clipboard.read()
+      if (cb.read) {
+        const items = await cb.read()
+        types = items.flatMap((i) => i.types)
         for (const it of items) {
           const t = it.types.find((t2) => t2.startsWith('image/'))
           if (t) {
-            const blob = await it.getType(t)
-            this.importImageBlobs([blob])
-            return
+            await this.importImageBlobs([await it.getType(t)])
+            return { what: 'image', types }
           }
         }
         for (const it of items) {
           if (!it.types.includes('text/html')) continue
-          const html = await (await it.getType('text/html')).text()
-          if (await this._pasteHtml(html)) return
+          if (await this._pasteHtml(await (await it.getType('text/html')).text())) return { what: 'html', types }
         }
+        for (const it of items) {
+          if (!it.types.includes('text/plain')) continue
+          if (await this._pasteText(await (await it.getType('text/plain')).text())) return { what: 'text', types }
+        }
+        return { what: 'nothing', types }
       }
-    } catch {}
-    try {
-      const text = await navigator.clipboard.readText()
-      await this._pasteText(text)
-    } catch {}
+      if (await this._pasteText(await cb.readText())) return { what: 'text', types: ['text/plain'] }
+      return { what: 'nothing', types }
+    } catch (error) {
+      return { what: 'error', types, error }
+    }
   }
   // tldraw's clipboard HTML → its shapes on our board; true when it was that
   async _pasteHtml(html) {

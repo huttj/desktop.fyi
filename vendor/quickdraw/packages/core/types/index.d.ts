@@ -487,8 +487,8 @@ export class Editor {
 
   // clipboard / images
   copySelection(): Promise<void>
-  /** Programmatic paste: images, tldraw's clipboard HTML, our own payload, or plain text (as a text shape). ⌘V uses the browser's paste event instead. */
-  pasteFromClipboard(): Promise<void>
+  /** Programmatic paste: images, tldraw's clipboard HTML, our own payload, or plain text (as a text shape). ⌘V uses the browser's paste event instead. Resolves with what happened. */
+  pasteFromClipboard(): Promise<{ what: 'image' | 'html' | 'text' | 'nothing' | 'error'; types: string[]; error?: unknown }>
   /**
    * Put tldraw content (see `parseTldrawClipboard`) on the board: converted
    * to our shapes, centred in the view (or at `at`), selected. Remote image

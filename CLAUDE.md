@@ -2,8 +2,9 @@
 
 ## Always check for Quickdraw updates first
 
-The canvas is Quickdraw, vendored from the sibling checkout at `../quickdraw` (a git repo the user
-develops in parallel). At the start of every session, and before any deploy, compare the vendored
+The canvas is Quickdraw, vendored unmodified from the sibling checkout at `../quickdraw` (a git repo
+the user develops in parallel). Anything the board needs from the engine goes upstream there, never
+into the vendored copy. At the start of every session, and before any deploy, compare the vendored
 commit with that checkout and pull it in if it moved:
 
 ```sh
@@ -16,7 +17,6 @@ If they differ, re-vendor from the committed tree (never the working tree: anoth
 rm -rf vendor/quickdraw/packages && mkdir -p vendor/quickdraw/packages && git -C ../quickdraw archive HEAD packages/core packages/react | tar -x -C vendor/quickdraw/
 rm -rf vendor/quickdraw/packages/core/test vendor/quickdraw/packages/*/README.md
 git -C ../quickdraw rev-parse HEAD > vendor/quickdraw/UPSTREAM_COMMIT
-python3 vendor/quickdraw/apply-hooks.py   # re-applies desktop.fyi's editor hooks; fails loudly if an anchor moved
 npm run check && npm test
 ```
 

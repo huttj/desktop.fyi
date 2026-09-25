@@ -274,7 +274,6 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       // Links to desktop.fyi stay in this tab; anything else (or a ⌘/ctrl/middle click) opens a new one.
       ed.container.addEventListener('pointerdown', (e) => { lastPress = { newTab: e.metaKey || e.ctrlKey || e.button === 1, at: Date.now() } }, true)
       ed.openLink = openLink
-      installLinkTaps(ed)
       installPasteReporting(ed, setNotice)
 
       if (!me) {
@@ -446,31 +445,6 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   )
 }
 
-/** Opens the link under a clean tap or click that Quickdraw itself would not follow. */
-function installLinkTaps(ed: Editor) {
-  let start: { x: number; y: number; t: number; type: string } | null = null
-  const el = ed.container
-  el.addEventListener('pointerdown', (e) => {
-    start = e.isPrimary ? { x: e.clientX, y: e.clientY, t: Date.now(), type: e.pointerType } : null
-  })
-  el.addEventListener('pointerup', (e) => {
-    const s = start
-    start = null
-    if (!s || !e.isPrimary) return
-    const dist = Math.hypot(e.clientX - s.x, e.clientY - s.y)
-    const slop = s.type === 'touch' ? 14 : 5
-    if (dist > slop || Date.now() - s.t > 500) return
-    // On the select tool Quickdraw opens a still click itself; only fill in the gaps.
-    if (ed.tool !== 'hand' && dist <= 4) return
-    const r = el.getBoundingClientRect()
-    const p = ed.screenToPage(e.clientX - r.left, e.clientY - r.top)
-    const hit = ed.hitTest(p.x, p.y)
-    if (!hit) return
-    const link = (ed as unknown as { _linkAt(shape: unknown, p: { x: number; y: number }): string | null })._linkAt(hit, p)
-    if (link) openLink(link)
-  })
-}
-
 /** The keys held on the last press on the board: a ⌘/ctrl/middle click asks for a new tab. */
 let lastPress = { newTab: false, at: 0 }
 
@@ -490,45 +464,19 @@ function openLink(href: string) {
 }
 
 /**
- * The menu's Paste, with its failures said out loud. Quickdraw swallows every
- * clipboard error, which on a phone hides the whole story: iOS only hands the
- * clipboard over after its own "Paste" bubble is tapped, and some copies carry
- * types nothing here can place.
+ * The menu's Paste, with its outcome said out loud. Quickdraw reports what it
+ * placed or why nothing landed; on a phone that is the whole story, since iOS
+ * only hands the clipboard over after its own "Paste" bubble is tapped.
  */
 function installPasteReporting(ed: Editor, notify: (message: string) => void) {
-  type Internals = { _pasteHtml(html: string): Promise<boolean>; _pasteText(text: string): Promise<boolean> }
-  const internals = ed as unknown as Internals
-  const imagesOnBoard = () => ed.store.shapes().filter((s) => s.type === 'image').length
+  const paste = ed.pasteFromClipboard.bind(ed)
   ed.pasteFromClipboard = async () => {
-    const cb = navigator.clipboard
-    if (!cb || (!cb.read && !cb.readText)) return notify('This browser cannot read the clipboard')
-    try {
-      if (cb.read) {
-        const items = await cb.read()
-        const types = items.flatMap((i) => i.types)
-        for (const it of items) {
-          const t = it.types.find((t2) => t2.startsWith('image/'))
-          if (!t) continue
-          const before = imagesOnBoard()
-          const blob = await it.getType(t)
-          await ed.importImageBlobs([blob])
-          if (imagesOnBoard() === before) notify(`Could not read that image (${t}, ${Math.round(blob.size / 1024)} KB)`)
-          return
-        }
-        for (const it of items) {
-          if (!it.types.includes('text/html')) continue
-          if (await internals._pasteHtml(await (await it.getType('text/html')).text())) return
-        }
-        for (const it of items) {
-          if (!it.types.includes('text/plain')) continue
-          if (await internals._pasteText(await (await it.getType('text/plain')).text())) return
-        }
-        return notify(types.length ? `Nothing here can be pasted (${types.join(', ')})` : 'The clipboard is empty')
-      }
-      if (!(await internals._pasteText(await cb.readText()))) notify('The clipboard is empty')
-    } catch (e) {
-      const err = e as { name?: string; message?: string }
-      notify(`Paste failed: ${[err?.name, err?.message ?? String(e)].filter(Boolean).join(': ')}`)
+    const r = await paste()
+    if (r.what === 'nothing') notify(r.types.length ? `Nothing here can be pasted (${r.types.join(', ')})` : 'The clipboard is empty')
+    if (r.what === 'error') {
+      const err = r.error as { name?: string; message?: string } | undefined
+      notify(`Paste failed: ${[err?.name, err?.message ?? String(r.error)].filter(Boolean).join(': ')}`)
     }
+    return r
   }
 }

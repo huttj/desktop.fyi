@@ -3,7 +3,7 @@
 Your desktop, on the web. Paste anything onto an infinite canvas. Friends can add to it. Everything fades unless somebody keeps it alive.
 
 - **One Cloudflare Worker** serves the React app and the API. Wrangler deploys it to `desktop.fyi`.
-- **The canvas is [Quickdraw](https://github.com/huttj/quickdraw)**, vendored in `vendor/quickdraw` (see `UPSTREAM_COMMIT`) with one small addition: `editor.shapeFilter` and `editor.shapeAlpha` hooks so the app can hide and fade shapes.
+- **The canvas is [Quickdraw](https://github.com/huttj/quickdraw)**, vendored unmodified in `vendor/quickdraw` (see `UPSTREAM_COMMIT`). The app hides and fades shapes through Quickdraw's `shapeFilter` and `shapeAlpha` hooks, and locks other people's things with `shapeLocked`.
 - **Every person has a desktop**, at `/@handle`, backed by a SQLite Durable Object (`worker/BoardDurableObject.ts`). Quickdraw records are stored whole, last-writer-wins, and relayed live over a websocket. The room stamps each record's bookkeeping itself (layer, author, freshness); nothing about that is trusted from clients.
 - **Layers.** The owner's things are on the desktop itself. A visitor's additions go on that visitor's layer. The layer picker shows everyone, the desktop alone, or one person's layer. Copy and paste works between any views (Quickdraw's clipboard payload is plain JSON).
 - **Decay.** Each item has an age in days. Fresh under 1, fading from 1 to 3, hidden at 3 (only its author can see and revive it, with the "show my hidden things" toggle), archived at 7, deleted 30 days after that. Between daily passes everyone sees a provisional age. The rules and the daily pass are pure functions in `shared/freshness.ts` and `shared/decay.ts`, with tests:
