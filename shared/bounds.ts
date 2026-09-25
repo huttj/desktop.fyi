@@ -37,11 +37,20 @@ export function approxBounds(rec: BoardRecord): { x: number; y: number; w: numbe
     case 'text': {
       const text = typeof p.text === 'string' ? p.text : ''
       const lines = text.split('\n')
-      const longest = lines.reduce((m, l) => Math.max(m, l.length), 0)
       const size = { s: 18, m: 24, l: 36, xl: 44 }[String(p.size)] ?? 24
       const scale = num(p.scale) || 1
-      w = Math.min(600, longest * size * 0.55) * scale
-      h = lines.length * size * 1.3 * scale
+      const charW = size * 0.55
+      if (p.autosize === false && num(p.w) > 0) {
+        // a fixed-width text wraps: count the lines it needs at that width
+        w = num(p.w)
+        const perLine = Math.max(1, Math.floor(w / charW))
+        const wrapped = lines.reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0)
+        h = wrapped * size * 1.32 * scale
+      } else {
+        const longest = lines.reduce((m, l) => Math.max(m, l.length), 0)
+        w = longest * charW * scale
+        h = lines.length * size * 1.32 * scale
+      }
       break
     }
     case 'note': {

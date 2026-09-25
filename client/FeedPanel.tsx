@@ -42,14 +42,19 @@ function clusterItems(items: FeedItem[], placedByBoard: Record<string, PlacedIte
     byBoard.set(item.boardId, list)
   }
   for (const [boardId, list] of byBoard) {
-    // every placed thing on the desktop, plus any feed item the placement missed
-    const nodes: PlacedItem[] = [...(placedByBoard[boardId] ?? [])]
-    const known = new Set(nodes.map((n) => n.id))
+    // every placed thing on the desktop; where the feed carries the record, its exact box replaces the server's estimate
+    const exact = new Map<string, PlacedItem>()
     for (const item of list) {
-      if (known.has(item.id) || !item.record) continue
+      if (!item.record) continue
       const b = pageBounds(item.record as ShapeRecord)
-      nodes.push({ id: item.id, x: b.x, y: b.y, w: b.w, h: b.h })
-      known.add(item.id)
+      exact.set(item.id, { id: item.id, x: b.x, y: b.y, w: b.w, h: b.h })
+    }
+    const nodes: PlacedItem[] = (placedByBoard[boardId] ?? []).map((n) => (exact.has(n.id) ? { ...n, ...exact.get(n.id)! } : n))
+    const known = new Set(nodes.map((n) => n.id))
+    for (const [id, n] of exact) {
+      if (known.has(id)) continue
+      nodes.push(n)
+      known.add(id)
     }
     const parent = nodes.map((_, i) => i)
     const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
