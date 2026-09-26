@@ -389,7 +389,9 @@ export class BoardDurableObject extends DurableObject<Env> {
           continue
         }
         if (!existing.is_asset && kind === 'edit') this.keepRevision(existing, userId, now)
-        this.sql.exec('UPDATE records SET data = ?, edited_by = ?, edited_at = ?, cx = ?, cy = ? WHERE id = ?', JSON.stringify(rec), userId, now, cx, cy, rec.id)
+        // a move is housekeeping, not news: the edit stamp (which the feed and "touched by" read) is for edits
+        if (kind === 'move') this.sql.exec('UPDATE records SET data = ?, cx = ?, cy = ? WHERE id = ?', JSON.stringify(rec), cx, cy, rec.id)
+        else this.sql.exec('UPDATE records SET data = ?, edited_by = ?, edited_at = ?, cx = ?, cy = ? WHERE id = ?', JSON.stringify(rec), userId, now, cx, cy, rec.id)
         if (!existing.is_asset && this.logEvent(rec.id, kind, userId, now)) {
           this.sql.exec('UPDATE records SET pending = MIN(?, pending + ?) WHERE id = ?', DIRECT_CAP, kind === 'edit' ? BUMP.edit : BUMP.move, rec.id)
         }
