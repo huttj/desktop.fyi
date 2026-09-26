@@ -1,9 +1,10 @@
 import type { ItemMeta } from './types'
 
 /**
- * How things age on a desktop. An item's score is its age in days; time adds
- * to it, attention takes from it. The daily pass (see decay.ts) settles the
- * books; between passes everyone works from the provisional age below.
+ * How things age on a desktop. An item's score is its age in days (people see
+ * it as a freshness percentage, see POINTS); time adds to it, attention takes
+ * from it. The daily pass (see decay.ts) settles the books; between passes
+ * everyone works from the provisional age below.
  */
 export const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -18,19 +19,36 @@ export const ARCHIVE_AT = 7
 /** Archived items are kept this long for a data request, then deleted. */
 export const PURGE_AFTER_DAYS = 30
 
-/** Direct bumps, in days of life. A move barely counts: people shove things around to make space. */
+/**
+ * Freshness is a score from 100 (just made) to 0 (hidden). Time takes points
+ * away at a steady rate (100 over HIDE_AT days, about 1.4 an hour); attention
+ * gives some back. The engine keeps the score as an age in days, so a bump is
+ * written here in points and converted.
+ */
+export const POINTS = 100
+export const days = (points: number) => (points / POINTS) * HIDE_AT
+export const pointsOf = (age: number) => Math.max(0, Math.min(POINTS, POINTS * (1 - age / HIDE_AT)))
+export const freshnessOf = (age: number) => pointsOf(age) / POINTS
+
+/** Bumps, in days of life. A move barely counts: people shove things around to make space. */
 export const BUMP = {
-  move: 0.1,
-  edit: 2,
-  /** A new item next to you, or you moved next to something newer (scaled by distance). */
-  near: 1,
+  /** 1 point. */
+  move: days(1),
+  /** 5 points. */
+  edit: days(5),
+  /** Moving next to something newer: 3 points, scaled by distance. */
+  near: days(3),
+  /** A new arrival warms its neighbours by up to 5 points, the older they are the more. */
+  arrive: days(5),
 } as const
-/** The most direct bumps one item can bank in a day. */
-export const DIRECT_CAP = 3
-/** The most it can gain from its neighbours in a day. */
-export const SPREAD_CAP = 2
-/** The most one item can gain in total per day. */
-export const TOTAL_CAP = 4
+/** The most direct bumps one item can bank in a day (15 points). */
+export const DIRECT_CAP = days(15)
+/** The most it can gain from its neighbours in a day (10 points). */
+export const SPREAD_CAP = days(10)
+/** The most one item can gain in total per day (20 points). */
+export const TOTAL_CAP = days(20)
+/** Freshen is offered once less than half a life is left. */
+export const FRESHEN_BELOW = 0.5
 
 /** Proximity falls off as 1 / (1 + (d / R0)^2); beyond R_MAX it is ignored. */
 export const PROXIMITY_R0 = 260
@@ -96,11 +114,12 @@ export function describeSpan(days: number): string {
 export function describeAge(age: number, pinned = false): string {
   if (pinned) return 'kept'
   const v = visibilityAt(age)
-  if (v === 'fresh') return 'fresh'
+  const pct = `${Math.round(pointsOf(age))}%`
+  if (v === 'fresh') return `${pct} fresh`
   if (v === 'fading') {
     const left = HIDE_AT - age
     if (left < 1 / 24) return 'about to vanish'
-    return `vanishes in ${describeSpan(left)}`
+    return `${pct} · vanishes in ${describeSpan(left)}`
   }
   if (v === 'hidden') {
     const left = ARCHIVE_AT - age

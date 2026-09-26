@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { runDecay, type DecayItem } from './decay'
-import { ARCHIVE_AT, BUMP, DAY_MS, HIDE_AT, PROXIMITY_R0, alphaAt, describeSpan, provisionalAge, visibilityAt } from './freshness'
+import { ARCHIVE_AT, BUMP, DAY_MS, DIRECT_CAP, HIDE_AT, PROXIMITY_R0, alphaAt, days, describeAge, describeSpan, pointsOf, provisionalAge, visibilityAt } from './freshness'
 
 const T0 = Date.UTC(2026, 8, 1)
 const item = (id: string, over: Partial<DecayItem> = {}): DecayItem => ({
@@ -26,7 +26,7 @@ describe('runDecay', () => {
     expect(r.archived).toEqual(['a'])
   })
 
-  it('a move is a small bump, an edit a large one, together capped', () => {
+  it('a move is a tiny bump, an edit a small one, together capped', () => {
     const items = [item('a'), item('b'), item('c')]
     // far apart so nothing spreads
     items[1].cx = 100_000
@@ -38,37 +38,44 @@ describe('runDecay', () => {
         { itemId: 'b', kind: 'edit' },
         { itemId: 'c', kind: 'edit' },
         { itemId: 'c', kind: 'edit' },
+        { itemId: 'c', kind: 'edit' },
+        { itemId: 'c', kind: 'edit' },
         { itemId: 'c', kind: 'move' },
       ],
       T0 + DAY_MS
     )
     expect(r.bumps.get('a')).toBeCloseTo(BUMP.move)
     expect(r.bumps.get('b')).toBeCloseTo(BUMP.edit)
-    expect(r.bumps.get('c')).toBeCloseTo(3) // capped
+    expect(r.bumps.get('c')).toBeCloseTo(DIRECT_CAP) // 4 edits and a move = 21 points, capped at 15
     expect(r.scores.get('a')).toBeCloseTo(1 - BUMP.move)
-    expect(r.scores.get('b')).toBeCloseTo(0)
+    expect(r.scores.get('b')).toBeCloseTo(1 - BUMP.edit)
   })
 
-  it('a new item is fresh and freshens its neighbours by distance', () => {
+  it('a new item is fresh and warms its neighbours by distance, the staler the more', () => {
     const old1 = item('near', { score: 2, cx: 0 })
     const old2 = item('far', { score: 2, cx: PROXIMITY_R0 * 3 })
+    const young = item('young', { score: 0.2, cy: 0, cx: 0 })
     const fresh = item('new', { createdAt: T0 + DAY_MS / 2, scoredAt: T0 + DAY_MS / 2, cx: 0 })
-    const r = runDecay([old1, old2, fresh], [{ itemId: 'new', kind: 'create' }], T0 + DAY_MS)
+    const r = runDecay([old1, old2, young, fresh], [{ itemId: 'new', kind: 'create' }], T0 + DAY_MS)
     expect(r.scores.get('new')).toBeCloseTo(0.5)
-    // the neighbour at distance 0 gets the whole "near" bump
-    expect(r.bumps.get('near')).toBeCloseTo(BUMP.near)
-    expect(r.scores.get('near')).toBeCloseTo(2 + 1 - BUMP.near)
-    // the one three radii away gets a tenth of it
-    expect(r.bumps.get('far')).toBeCloseTo(BUMP.near / 10)
+    // at distance 0 the old one (age 3: fully stale) gets the whole "arrive" bump
+    expect(r.bumps.get('near')).toBeCloseTo(BUMP.arrive)
+    expect(r.scores.get('near')).toBeCloseTo(3 - BUMP.arrive)
+    // the one three radii away gets a tenth of that
+    expect(r.bumps.get('far')).toBeCloseTo(BUMP.arrive / 10)
+    // the young one (age 1.2) gets its share of staleness
+    expect(r.bumps.get('young')).toBeCloseTo(BUMP.arrive * (1.2 / HIDE_AT))
+    // and the newcomer itself gains nothing
+    expect(r.bumps.get('new')).toBe(0)
   })
 
-  it('moving next to something newer earns a medium bump', () => {
-    const mover = item('mover', { createdAt: T0 - 10 * DAY_MS, cx: 0 })
-    const newer = item('newer', { createdAt: T0 - DAY_MS, cx: 50 })
+  it('moving next to something newer earns a small bump', () => {
+    const mover = item('mover', { createdAt: T0 - 10 * DAY_MS, cx: 0, score: 1 })
+    const newer = item('newer', { createdAt: T0 - DAY_MS, cx: 50, score: 2 })
     const r = runDecay([mover, newer], [{ itemId: 'mover', kind: 'move' }], T0 + DAY_MS)
     const w = 1 / (1 + (50 / PROXIMITY_R0) ** 2)
     expect(r.bumps.get('mover')).toBeCloseTo(BUMP.move + BUMP.near * w)
-    // and the newer neighbour catches the spread of the move
+    // and the neighbour catches the warmth of the move, by how stale it is (age 3: fully)
     expect(r.bumps.get('newer')).toBeCloseTo(BUMP.move * w)
   })
 
@@ -76,9 +83,9 @@ describe('runDecay', () => {
     const post = item('post', { score: 2.5, cx: 0 })
     const comment = item('comment', { score: 2.5, cx: 120, createdAt: T0 - DAY_MS })
     const edited = runDecay([post, comment], [{ itemId: 'post', kind: 'edit' }], T0 + DAY_MS)
-    expect(edited.bumps.get('comment')!).toBeGreaterThan(1)
+    expect(edited.bumps.get('comment')!).toBeGreaterThan(0)
     const replied = runDecay([post, comment], [{ itemId: 'comment', kind: 'edit' }], T0 + DAY_MS)
-    expect(replied.bumps.get('post')!).toBeGreaterThan(1)
+    expect(replied.bumps.get('post')!).toBeGreaterThan(0)
   })
 
   it('a pinned item does not age', () => {
@@ -94,10 +101,21 @@ describe('runDecay', () => {
 })
 
 describe('freshness', () => {
-  it('provisional age counts time and subtracts pending bumps', () => {
-    const meta = { score: 1, scoredAt: T0, pending: 0.5 }
-    expect(provisionalAge(meta, T0 + DAY_MS)).toBeCloseTo(1.5)
-    expect(provisionalAge({ ...meta, pending: 10 }, T0 + DAY_MS)).toBeCloseTo(0)
+  it('provisional age counts time and subtracts pending bumps, capped', () => {
+    const meta = { score: 1, scoredAt: T0, pending: days(5) }
+    expect(provisionalAge(meta, T0 + DAY_MS)).toBeCloseTo(2 - days(5))
+    expect(provisionalAge({ ...meta, pending: 10 }, T0 + DAY_MS)).toBeCloseTo(2 - DIRECT_CAP)
+  })
+
+  it('reads as a score out of 100 that runs out at hiding', () => {
+    expect(pointsOf(0)).toBe(100)
+    expect(pointsOf(HIDE_AT / 2)).toBe(50)
+    expect(pointsOf(HIDE_AT)).toBe(0)
+    expect(pointsOf(ARCHIVE_AT)).toBe(0)
+    expect(days(100)).toBe(HIDE_AT)
+    expect(describeAge(0.3)).toBe('90% fresh')
+    expect(describeAge(2)).toBe('33% · vanishes in 1d')
+    expect(describeAge(2, true)).toBe('kept')
   })
 
   it('maps age to visibility and opacity', () => {

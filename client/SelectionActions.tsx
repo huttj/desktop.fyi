@@ -1,6 +1,6 @@
 import type { AssetRecord, Editor, ShapeRecord } from '@quickdrawjs/core'
 import { useEffect, useRef, useState } from 'react'
-import { provisionalAge } from '../shared/freshness'
+import { FRESHEN_BELOW, freshnessOf, provisionalAge } from '../shared/freshness'
 import type { ItemMeta, Me, Revision } from '../shared/types'
 import { api } from './api'
 import { nameOf, relativeTime, type People } from './people'
@@ -69,7 +69,7 @@ export function SelectionActions({
         const shape = editor.store.get(id)
         units.add((shape && shape.typeName === 'shape' && shape.groupId) || id)
         if (!meta.pinned) allPinned = false
-        if (!meta.pinned && provisionalAge(meta, now) > 0.05) anyStale = true
+        if (!meta.pinned && freshnessOf(provisionalAge(meta, now)) < FRESHEN_BELOW) anyStale = true
       }
       if (!ids.length) return setState(null)
       const s = editor.pageToScreen(b.x + b.w / 2, b.y + b.h)
@@ -105,7 +105,7 @@ export function SelectionActions({
         {n > 1 && <span className="SelectionActions-count">{n}</span>}
       </button>
       {state.anyStale && (
-        <button type="button" className="SelectionActions-button" onClick={() => sync?.freshen(state.ids)} title="Reset its age to zero">
+        <button type="button" className="SelectionActions-button" onClick={() => sync?.freshen(state.ids)} title="Back to 100% fresh">
           <SparkIcon /> Freshen
         </button>
       )}
