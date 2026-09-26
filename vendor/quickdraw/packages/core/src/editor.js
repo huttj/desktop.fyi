@@ -1895,44 +1895,60 @@ export class Editor {
     for (const f of found) if (f && (!best || f.score < best.score)) best = f
     return best
   }
-  // Gaps, the way a layout tool keeps spacing even. Along each axis, the
-  // boxes in the moving box's row (they overlap it crosswise) offer:
-  //   - the gap between two neighbours, repeated next to any of them: the
-  //     box settles so its gap to that neighbour equals theirs
+  // Gaps, the way a layout tool keeps spacing even. The boxes on screen
+  // are paired off into neighbours (adjacent, side by side or stacked) and
+  // the space between each pair is a spacing the board already uses. Along
+  // each axis, the boxes in the moving box's row (they overlap it crosswise)
+  // offer:
+  //   - any of those spacings, repeated next to a neighbour: the box settles
+  //     so its gap to that neighbour equals it — a column picks up the
+  //     spacing of a row as readily as its own
   //   - the middle of two neighbours it fits between (translating only)
-  // Each candidate places the box's leading or trailing edge, and carries the
-  // two equal gaps to draw. `boxes` is what is on screen, excluding the box.
+  // Each candidate places the box's leading or trailing edge, carries the
+  // two equal gaps to draw (each in its own orientation), and scores by how
+  // near the pair it copies is, so a spacing next door beats one far off.
+  // `boxes` is what is on screen, excluding the box.
   _gapCandidates(box, boxes, { between = false } = {}) {
     const out = { left: [], right: [], top: [], bottom: [] }
-    const axes = [
-      { lead: 'left', trail: 'right', pos: (b) => b.x, size: (b) => b.w, cpos: (b) => b.y, csize: (b) => b.h },
-      { lead: 'top', trail: 'bottom', pos: (b) => b.y, size: (b) => b.h, cpos: (b) => b.x, csize: (b) => b.w },
-    ]
-    for (const a of axes) {
-      const end = (b) => a.pos(b) + a.size(b)
-      const overlap = (p, q) => Math.min(a.cpos(p) + a.csize(p), a.cpos(q) + a.csize(q)) - Math.max(a.cpos(p), a.cpos(q))
-      const mid = (p, q) => (Math.max(a.cpos(p), a.cpos(q)) + Math.min(a.cpos(p) + a.csize(p), a.cpos(q) + a.csize(q))) / 2
-      const row = boxes.filter((b) => overlap(b, box) > 0).sort((p, q) => a.pos(p) - a.pos(q))
-      // adjacent pairs in the row, and the gap between them
-      const pairs = []
-      for (const p of row) {
-        for (const q of row) {
+    const axes = {
+      x: { lead: 'left', trail: 'right', pos: (b) => b.x, size: (b) => b.w, cpos: (b) => b.y, csize: (b) => b.h },
+      y: { lead: 'top', trail: 'bottom', pos: (b) => b.y, size: (b) => b.h, cpos: (b) => b.x, csize: (b) => b.w },
+    }
+    const helpers = (a) => ({
+      end: (b) => a.pos(b) + a.size(b),
+      overlap: (p, q) => Math.min(a.cpos(p) + a.csize(p), a.cpos(q) + a.csize(q)) - Math.max(a.cpos(p), a.cpos(q)),
+      mid: (p, q) => (Math.max(a.cpos(p), a.cpos(q)) + Math.min(a.cpos(p) + a.csize(p), a.cpos(q) + a.csize(q))) / 2,
+    })
+    // every adjacent pair on screen, by axis, with the space between
+    const pairs = []
+    for (const [axis, a] of Object.entries(axes)) {
+      const { end, overlap, mid } = helpers(a)
+      for (const p of boxes) {
+        for (const q of boxes) {
           if (q === p || end(p) >= a.pos(q) || overlap(p, q) <= 0) continue
-          if (row.some((r) => r !== p && r !== q && end(p) <= a.pos(r) && end(r) <= a.pos(q) && overlap(r, p) > 0)) continue
-          pairs.push({ p, q, g: a.pos(q) - end(p) })
+          if (boxes.some((r) => r !== p && r !== q && end(p) <= a.pos(r) && end(r) <= a.pos(q) && overlap(r, p) > 0 && overlap(r, q) > 0)) continue
+          const g = a.pos(q) - end(p)
+          if (g <= 0) continue
+          pairs.push({ axis, g, p, q, span: { axis, from: end(p), to: a.pos(q), at: mid(p, q) }, b: boundsUnion(p, q) })
         }
       }
-      const span = (from, to, at) => ({ from, to, at })
-      for (const { p, q, g } of pairs) {
+    }
+    for (const [axis, a] of Object.entries(axes)) {
+      const { end, overlap, mid } = helpers(a)
+      const row = boxes.filter((b) => overlap(b, box) > 0)
+      for (const pr of pairs) {
+        // a spacing from the other axis counts too, a hair behind its own
+        const bias = pr.axis === axis ? 0 : 2
         for (const n of row) {
+          const at = mid(n, box)
           // the box after n with the same gap: its leading edge at n's end + g
-          out[a.lead].push({ at: end(n) + g, b: { spans: [span(end(p), a.pos(q), mid(p, q)), span(end(n), end(n) + g, mid(n, box))], x: n.x, y: n.y, w: n.w, h: n.h } })
+          out[a.lead].push({ at: end(n) + pr.g, bias, b: { ...pr.b, spans: [pr.span, { axis, from: end(n), to: end(n) + pr.g, at }] } })
           // the box before n with the same gap: its trailing edge at n's start - g
-          out[a.trail].push({ at: a.pos(n) - g, b: { spans: [span(end(p), a.pos(q), mid(p, q)), span(a.pos(n) - g, a.pos(n), mid(n, box))], x: n.x, y: n.y, w: n.w, h: n.h } })
+          out[a.trail].push({ at: a.pos(n) - pr.g, bias, b: { ...pr.b, spans: [pr.span, { axis, from: a.pos(n) - pr.g, to: a.pos(n), at }] } })
         }
-        if (between && g > a.size(box)) {
-          const lead = end(p) + (g - a.size(box)) / 2
-          out[a.lead].push({ at: lead, b: { spans: [span(end(p), lead, mid(p, box)), span(lead + a.size(box), a.pos(q), mid(q, box))], x: p.x, y: p.y, w: p.w, h: p.h } })
+        if (between && pr.axis === axis && pr.g > a.size(box)) {
+          const lead = end(pr.p) + (pr.g - a.size(box)) / 2
+          out[a.lead].push({ at: lead, bias, b: { ...pr.b, spans: [{ axis, from: end(pr.p), to: lead, at: mid(pr.p, box) }, { axis, from: lead + a.size(box), to: a.pos(pr.q), at: mid(pr.q, box) }] } })
         }
       }
     }
@@ -1947,7 +1963,7 @@ export class Editor {
       for (const c of cands) {
         const d = c.at - m
         if (Math.abs(d) > tol) continue
-        const score = Math.abs(d) + (box ? rectGap(box, c.b) / 40 : 0)
+        const score = Math.abs(d) + (box ? rectGap(box, c.b) / 40 : 0) + (c.bias || 0)
         if (!best || score < best.score) best = { d, at: c.at, b: c.b, score }
       }
     }
@@ -3277,12 +3293,13 @@ export class Editor {
           ctx.textBaseline = 'bottom'
           ctx.fillStyle = t.selection
           for (const sp of g.spans) {
-            // a translate's spans were measured before the box settled: the box's own gap moves by the shift
-            const a = g.axis === 'gx' ? this.pageToScreen(sp.from, sp.at) : this.pageToScreen(sp.at, sp.from)
-            const b = g.axis === 'gx' ? this.pageToScreen(sp.to, sp.at) : this.pageToScreen(sp.at, sp.to)
+            // each equal gap in its own orientation: a column can copy a row's spacing
+            const horizontal = (sp.axis || (g.axis === 'gx' ? 'x' : 'y')) === 'x'
+            const a = horizontal ? this.pageToScreen(sp.from, sp.at) : this.pageToScreen(sp.at, sp.from)
+            const b = horizontal ? this.pageToScreen(sp.to, sp.at) : this.pageToScreen(sp.at, sp.to)
             const tick = 4
             ctx.beginPath()
-            if (g.axis === 'gx') {
+            if (horizontal) {
               const y = Math.round(a.y) + 0.5
               ctx.moveTo(a.x, y); ctx.lineTo(b.x, y); ctx.moveTo(a.x, y - tick); ctx.lineTo(a.x, y + tick); ctx.moveTo(b.x, y - tick); ctx.lineTo(b.x, y + tick)
               ctx.stroke()
