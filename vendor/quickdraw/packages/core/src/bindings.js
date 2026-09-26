@@ -5,7 +5,7 @@
 // when it moves, resizes or rotates. Stored on the arrow's props as
 // `startBind` / `endBind`: { id, nx, ny }. Dependency-free ESM.
 
-import { localBounds } from './shapes.js'
+import { localBounds, lineHeads } from './shapes.js'
 import { rotWith, geoPolygon, ellipsePolygon, pointInPolygon } from './geometry.js'
 import { SIZES } from './palette.js'
 
@@ -102,9 +102,12 @@ export function boundTerminals(arrow, store) {
     const len = Math.hypot(dx, dy) || 1
     const bend = p.bend || 0
     const ctrl = bend ? { x: start.x + dx / 2 + (-dy / len) * bend * 2, y: start.y + dy / 2 + (dx / len) * bend * 2 } : null
+    // an end wearing a head stops short of the outline so the head's tip sits on it
+    const heads = lineHeads(arrow)
+    const gap = (head) => (head !== 'none' ? w * 1.2 + 1 : w * 0.5)
     return {
-      start: sb ? place(sb, p.startBind, ctrl || end, w * 0.5) : start,
-      end: eb ? place(eb, p.endBind, ctrl || start, arrow.type === 'arrow' ? w * 1.2 + 1 : w * 0.5) : end,
+      start: sb ? place(sb, p.startBind, ctrl || end, gap(heads.start)) : start,
+      end: eb ? place(eb, p.endBind, ctrl || start, gap(heads.end)) : end,
     }
   }
   let r = solve()

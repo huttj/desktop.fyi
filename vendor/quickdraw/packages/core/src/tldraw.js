@@ -338,19 +338,19 @@ function convertShape(s, o, r, binds) {
         if (t?.type === 'binding') return { x: 0, y: 0, bind: { id: t.boundShapeId, ...anchor(t) } }
         return { x: t?.x || 0, y: t?.y || 0, bind: null }
       }
-      let a = term(p.start, 'start'), b = term(p.end, 'end')
-      let bend = p.kind === 'elbow' ? 0 : p.bend || 0
-      const headAt = (v) => v && v !== 'none'
-      let type = 'arrow'
-      if (!headAt(p.arrowheadEnd) && headAt(p.arrowheadStart)) { [a, b] = [b, a]; bend = -bend } // head at the start: flip it round
-      else if (!headAt(p.arrowheadEnd) && !headAt(p.arrowheadStart)) type = 'line'
+      const a = term(p.start, 'start'), b = term(p.end, 'end')
+      const bend = p.kind === 'elbow' ? 0 : p.bend || 0
+      // tldraw's heads map onto ours; the filled and boxy ones all become a triangle
+      const head = (v) => (!v || v === 'none' ? 'none' : v === 'arrow' ? 'arrow' : v === 'dot' ? 'dot' : 'triangle')
+      const headStart = head(p.arrowheadStart), headEnd = head(p.arrowheadEnd)
+      const type = headStart !== 'none' || headEnd !== 'none' ? 'arrow' : 'line'
       // bake the shape's rotation into the vector — our arrows don't turn
       const pa = rotWith(o.x + a.x, o.y + a.y, o.x, o.y, r)
       const pb = rotWith(o.x + b.x, o.y + b.y, o.x, o.y, r)
       return {
         ...base, type, x: pa.x, y: pa.y,
         props: {
-          dx: pb.x - pa.x || 0.01, dy: pb.y - pa.y || 0.01, bend,
+          dx: pb.x - pa.x || 0.01, dy: pb.y - pa.y || 0.01, bend, headStart, headEnd,
           color: color(p.color), size: size(p.size), dash: p.dash === 'draw' ? 'solid' : dash(p.dash),
           ...(a.bind ? { startBind: a.bind } : {}), ...(b.bind ? { endBind: b.bind } : {}),
         },

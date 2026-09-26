@@ -107,6 +107,8 @@ export const FILL_IDS = ['none', 'semi', 'solid', 'pattern']
 export const FONT_IDS = ['draw', 'sans', 'serif', 'mono']
 // where text sits in its box: the text shape's alignment
 export const ALIGN_IDS = ['start', 'middle', 'end']
+// what an arrow or line wears at each end
+export const HEAD_IDS = ['none', 'arrow', 'triangle', 'dot']
 // The faces tldraw uses lead each stack (self-hosted by fonts.css — import
 // it next to quickdraw.css); without them, the system's nearest stands in.
 export const FONTS = {

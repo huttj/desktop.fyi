@@ -6,6 +6,7 @@
 import { Store, newId } from './store.js'
 import { themeOf, SIZES, FONT_SIZES, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR } from './palette.js'
 import {
+  lineHeads, typeForHeads,
   localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, imageFrame,
   mapMarks, textLinkAt, textHitAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark,
@@ -23,10 +24,11 @@ const RESIZE_CURSORS = {
   tl: 'nwse-resize', br: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize',
   t: 'ns-resize', b: 'ns-resize', l: 'ew-resize', r: 'ew-resize',
 }
-const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', font: 'draw', align: 'start' }
+const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', font: 'draw', align: 'start', headStart: 'none', headEnd: 'arrow' }
 // what a tool starts with before you have touched its styles: the highlighter
 // is a fat yellow marker, everything else takes the board's defaults
-const TOOL_STYLE_DEFAULTS = { highlight: { color: 'yellow', size: 'l' } }
+// a line is an arrow with no heads: the two tools share everything else
+const TOOL_STYLE_DEFAULTS = { highlight: { color: 'yellow', size: 'l' }, line: { headStart: 'none', headEnd: 'none' } }
 // [x, y, pressure] triplets: true once any point sits apart from the first
 const strokeHasLength = (pts) => {
   for (let i = 3; i < pts.length; i += 3) if (pts[i] !== pts[0] || pts[i + 1] !== pts[1]) return true
@@ -464,11 +466,17 @@ export class Editor {
         fill: ['geo'],
         font: ['text', 'note', 'geo'],
         align: ['text', 'note'],
+        headStart: ['arrow', 'line'], headEnd: ['arrow', 'line'],
       }
       this.store.transact(() => {
         for (const id of this.selection) {
           const s = this.store.get(id)
-          if (s && APPLIES[key]?.includes(s.type)) this.store.update(id, { props: { [key]: value } })
+          if (!s || !APPLIES[key]?.includes(s.type)) continue
+          if (key === 'headStart' || key === 'headEnd') {
+            // heads make the shape: any head and it is an arrow, none and a line
+            const heads = { ...lineHeads(s), [key === 'headStart' ? 'start' : 'end']: value }
+            this.store.put({ ...s, type: typeForHeads(heads), props: { ...s.props, headStart: heads.start, headEnd: heads.end } })
+          } else this.store.update(id, { props: { [key]: value } })
         }
       })
     }
@@ -481,9 +489,11 @@ export class Editor {
     for (const id of this.selection) {
       const s = this.store.get(id)
       if (!s) continue
-      for (const k of ['color', 'size', 'dash', 'fill', 'font', 'align']) {
-        // a note without an align is a centred note
-        const v = k === 'align' && s.type === 'note' ? (s.props.align ?? 'middle') : s.props[k]
+      const heads = s.type === 'arrow' || s.type === 'line' ? lineHeads(s) : null
+      for (const k of ['color', 'size', 'dash', 'fill', 'font', 'align', 'headStart', 'headEnd']) {
+        // a note without an align is a centred note; an arrow's heads may be implied by its type
+        const v = k === 'align' && s.type === 'note' ? (s.props.align ?? 'middle')
+          : k === 'headStart' && heads ? heads.start : k === 'headEnd' && heads ? heads.end : s.props[k]
         if (v === undefined) continue
         if (!(k in out)) out[k] = v
         else if (out[k] !== v) out[k] = null
@@ -1261,14 +1271,16 @@ export class Editor {
   // An arrow drawn from inside a shape, or ended over one, ties itself to
   // it: the end rides the shape's outline and follows it from then on. ⌥
   // binds to the exact point instead of snapping to the shape's centre.
-  _beginLineish(type, p, e) {
+  _beginLineish(tool, p, e) {
     const id = newId()
     this.store.beginBatch()
     const target = this._bindTarget(p, id)
+    // the heads decide what it is: a line tool wearing a head draws arrows
+    const heads = { start: this.styles.headStart, end: this.styles.headEnd }
     this.store.put({
-      id, typeName: 'shape', type, x: p.x, y: p.y, rot: 0, z: this.store.maxZ() + 1,
+      id, typeName: 'shape', type: typeForHeads(heads), x: p.x, y: p.y, rot: 0, z: this.store.maxZ() + 1,
       props: {
-        dx: 0.01, dy: 0.01, bend: 0,
+        dx: 0.01, dy: 0.01, bend: 0, headStart: heads.start, headEnd: heads.end,
         color: this.styles.color, size: this.styles.size,
         dash: this.styles.dash === 'draw' ? 'solid' : this.styles.dash,
         ...(target ? { startBind: { id: target.id, ...anchorAt(target, p.x, p.y, { precise: e.altKey }) } } : {}),
@@ -2180,17 +2192,19 @@ export class Editor {
     const s = this.store.get(ss.id)
     if (!s) return
     const pr = s.props
+    // shift holds either end to 15° steps around the other
+    const snap15 = (dx, dy) => {
+      if (!e.shiftKey) return [dx, dy]
+      const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12)
+      const len = Math.hypot(dx, dy)
+      return [Math.cos(a) * len, Math.sin(a) * len]
+    }
     if (ss.which === 'start') {
       const ex = s.x + pr.dx, ey = s.y + pr.dy
-      this.store.update(s.id, { x: p.x, y: p.y, props: { dx: ex - p.x, dy: ey - p.y, ...this._endBinding(s, 'startBind', p, e) } })
+      const [dx, dy] = snap15(ex - p.x, ey - p.y)
+      this.store.update(s.id, { x: ex - dx, y: ey - dy, props: { dx, dy, ...this._endBinding(s, 'startBind', p, e) } })
     } else if (ss.which === 'end') {
-      let dx = p.x - s.x, dy = p.y - s.y
-      if (e.shiftKey) {
-        const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12)
-        const len = Math.hypot(dx, dy)
-        dx = Math.cos(a) * len
-        dy = Math.sin(a) * len
-      }
+      const [dx, dy] = snap15(p.x - s.x, p.y - s.y)
       this.store.update(s.id, { props: { dx, dy, ...this._endBinding(s, 'endBind', p, e) } })
     } else if (ss.which === 'bend') {
       // signed distance of the pointer from the straight chord
@@ -2327,9 +2341,10 @@ export class Editor {
     const base = { id, typeName: 'shape', rot: 0, z: this.store.maxZ() + 1 }
     let shape
     if (kind === 'arrow' || kind === 'line') {
+      const heads = { start: st.headStart, end: st.headEnd }
       shape = {
-        ...base, type: kind, x: at.x - 80, y: at.y,
-        props: { dx: 160, dy: 0, bend: 0, color: st.color, size: st.size, dash: st.dash === 'draw' ? 'solid' : st.dash },
+        ...base, type: typeForHeads(heads), x: at.x - 80, y: at.y,
+        props: { dx: 160, dy: 0, bend: 0, headStart: heads.start, headEnd: heads.end, color: st.color, size: st.size, dash: st.dash === 'draw' ? 'solid' : st.dash },
       }
     } else {
       const geo = kind === 'geo' ? this.geoKind : kind

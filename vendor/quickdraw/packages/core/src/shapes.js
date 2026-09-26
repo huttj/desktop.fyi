@@ -16,6 +16,30 @@ import {
 import { strokeOutline } from './freehand.js'
 
 export const NOTE_W = 200
+// The head at each end of an arrow or line: explicit props win, and a shape
+// without them keeps what its type always meant — an arrow's chevron at the
+// end, nothing on a line. Any head makes the shape an arrow; none, a line.
+export const HEAD_DEFAULT = { start: 'none', end: 'none' }
+export function lineHeads(shape) {
+  const p = shape.props
+  return {
+    start: p.headStart ?? 'none',
+    end: p.headEnd ?? (shape.type === 'arrow' ? 'arrow' : 'none'),
+  }
+}
+export const typeForHeads = (heads) => (heads.start !== 'none' || heads.end !== 'none' ? 'arrow' : 'line')
+// the geometry of a head sitting at (x, y), pointing along angle `a` (from
+// the body toward the tip), for a body `w` wide and `len` long
+export function headGeometry(kind, x, y, a, w, len) {
+  const hl = Math.min(Math.max(w * 3.2, 12), len * 0.4)
+  const wing = (da, l = hl) => [x - Math.cos(a + da) * l, y - Math.sin(a + da) * l]
+  switch (kind) {
+    case 'arrow': return { kind, pts: [wing(-0.5), [x, y], wing(0.5)] }
+    case 'triangle': return { kind, pts: [wing(-0.42, hl * 0.9), [x, y], wing(0.42, hl * 0.9)] }
+    case 'dot': return { kind, cx: x, cy: y, r: Math.max(w * 1.4, 4) }
+    default: return null
+  }
+}
 export const NOTE_PAD = 20
 const LABEL_PAD = 12
 
@@ -714,17 +738,28 @@ export function drawShape(ctx, shape, opts) {
       else ctx.lineTo(p.dx, p.dy)
       ctx.stroke()
       ctx.setLineDash([])
-      if (shape.type === 'arrow') {
-        // chevron head aligned with the end tangent
-        const tx = p.dx - cx2, ty = p.dy - cy2
-        const ta = bend ? Math.atan2(ty, tx) : Math.atan2(p.dy, p.dx)
-        const hl = Math.min(Math.max(w * 3.2, 12), len * 0.4)
+      // heads sit along each end's tangent
+      const heads = lineHeads(shape)
+      const ends = [
+        [heads.end, p.dx, p.dy, bend ? Math.atan2(p.dy - cy2, p.dx - cx2) : Math.atan2(p.dy, p.dx)],
+        [heads.start, 0, 0, bend ? Math.atan2(-cy2, -cx2) : Math.atan2(-p.dy, -p.dx)],
+      ]
+      for (const [kind, hx, hy, ta] of ends) {
+        const g = headGeometry(kind, hx, hy, ta, w, len)
+        if (!g) continue
         ctx.beginPath()
-        ctx.moveTo(p.dx - Math.cos(ta - 0.5) * hl, p.dy - Math.sin(ta - 0.5) * hl)
-        ctx.lineTo(p.dx, p.dy)
-        ctx.lineTo(p.dx - Math.cos(ta + 0.5) * hl, p.dy - Math.sin(ta + 0.5) * hl)
+        if (g.kind === 'dot') {
+          ctx.arc(g.cx, g.cy, g.r, 0, Math.PI * 2)
+          ctx.fillStyle = col.stroke
+          ctx.fill()
+          continue
+        }
+        ctx.moveTo(...g.pts[0])
+        for (const q of g.pts.slice(1)) ctx.lineTo(...q)
         ctx.lineWidth = w
         ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        if (g.kind === 'triangle') { ctx.closePath(); ctx.fillStyle = col.stroke; ctx.fill() }
         ctx.stroke()
       }
       break

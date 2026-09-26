@@ -5,7 +5,7 @@
 // tool. Dependency-free ESM (see palette.js).
 
 import { SIZES, HIGHLIGHT_ALPHA, HIGHLIGHT_SCALE, HIGHLIGHT_PLAIN, GRID_STEP, GRID_MAJOR } from './palette.js'
-import {
+import { lineHeads, headGeometry,
   localBounds, pageBounds, textLayout, noteLayout, geoLabelLayout, lineBaseline, lineRuns,
   buildGeoPath, buildInkPath, dashFor, imageFrame, urlBadgeAt, NOTE_PAD, SEMI,
 } from './shapes.js'
@@ -137,11 +137,17 @@ export function shapeToSvg(shape, { theme, store, defs }) {
       const cx = p.dx / 2 + nx * bend * 2, cy = p.dy / 2 + ny * bend * 2
       const d = bend ? `M0 0Q${n(cx)} ${n(cy)} ${n(p.dx)} ${n(p.dy)}` : `M0 0L${n(p.dx)} ${n(p.dy)}`
       body = tag('path', { d, ...strokeAttrs(col.stroke, p.dash, w) })
-      if (shape.type === 'arrow') {
-        const ta = bend ? Math.atan2(p.dy - cy, p.dx - cx) : Math.atan2(p.dy, p.dx)
-        const hl = Math.min(Math.max(w * 3.2, 12), len * 0.4)
-        const head = `M${n(p.dx - Math.cos(ta - 0.5) * hl)} ${n(p.dy - Math.sin(ta - 0.5) * hl)}L${n(p.dx)} ${n(p.dy)}L${n(p.dx - Math.cos(ta + 0.5) * hl)} ${n(p.dy - Math.sin(ta + 0.5) * hl)}`
-        body += tag('path', { d: head, ...strokeAttrs(col.stroke, 'solid', w) })
+      const heads = lineHeads(shape)
+      const ends = [
+        [heads.end, p.dx, p.dy, bend ? Math.atan2(p.dy - cy, p.dx - cx) : Math.atan2(p.dy, p.dx)],
+        [heads.start, 0, 0, bend ? Math.atan2(-cy, -cx) : Math.atan2(-p.dy, -p.dx)],
+      ]
+      for (const [kind, hx, hy, ta] of ends) {
+        const g = headGeometry(kind, hx, hy, ta, w, len)
+        if (!g) continue
+        if (g.kind === 'dot') { body += tag('circle', { cx: n(g.cx), cy: n(g.cy), r: n(g.r), fill: col.stroke }); continue }
+        const d = g.pts.map(([x, y], i) => (i ? 'L' : 'M') + n(x) + ' ' + n(y)).join('') + (g.kind === 'triangle' ? 'Z' : '')
+        body += tag('path', { d, ...strokeAttrs(col.stroke, 'solid', w), ...(g.kind === 'triangle' ? { fill: col.stroke } : {}) })
       }
       break
     }

@@ -6,7 +6,7 @@
 // the standard set users already know.
 // Dependency-free ESM (see palette.js).
 
-import { COLOR_IDS, SIZE_IDS, DASH_IDS, FILL_IDS, GEO_IDS, GRID_IDS, FONT_IDS, ALIGN_IDS, FONTS, THEMES } from './palette.js'
+import { COLOR_IDS, SIZE_IDS, DASH_IDS, FILL_IDS, GEO_IDS, GRID_IDS, FONT_IDS, ALIGN_IDS, HEAD_IDS, FONTS, THEMES } from './palette.js'
 import { pageBounds } from './shapes.js'
 
 const SVG = (inner) =>
@@ -109,6 +109,15 @@ const ALIGN_ICONS = {
   end: SVG('<path d="M21 6H3"/><path d="M21 12H9"/><path d="M21 18H7"/>'),
 }
 const ALIGN_TIPS = { start: 'Align text left', middle: 'Center text', end: 'Align text right' }
+// what an arrow or line wears at an end, drawn pointing right; the start row
+// mirrors them
+const HEAD_ICONS = {
+  none: SVG('<path d="M4 12h16"/>'),
+  arrow: SVG('<path d="M4 12h16"/><path d="m14 6 6 6-6 6"/>'),
+  triangle: SVG('<path d="M4 12h9"/><path d="M13 6.5 20 12l-7 5.5z" fill="currentColor"/>'),
+  dot: SVG('<path d="M4 12h12"/><circle cx="17" cy="12" r="3" fill="currentColor"/>'),
+}
+const HEAD_TIPS = { none: 'no head', arrow: 'arrow', triangle: 'triangle', dot: 'dot' }
 const FILL_ICONS = {
   none: SVG('<rect x="5" y="5" width="14" height="14" rx="2"/>'),
   semi: SVG('<rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" fill-opacity="0.18"/>'),
@@ -397,6 +406,22 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       b.addEventListener('click', (e) => { e.stopPropagation(); editor.setStyle('align', a); restyle() })
       aligns.appendChild(b)
     }
+    // arrow and line ends: a row per end, the start row's icons mirrored
+    const headRows = {}
+    for (const [key, which, label] of [['headStart', 'start', 'Start'], ['headEnd', 'end', 'End']]) {
+      const r = row('qd-heads qd-heads-' + which)
+      const l = el('span', 'qd-row-label')
+      l.textContent = label
+      r.appendChild(l)
+      for (const h of HEAD_IDS) {
+        const b = el('button', 'qd-opt' + (cur[key] === h ? ' on' : ''))
+        b.title = label + ': ' + HEAD_TIPS[h]
+        b.innerHTML = HEAD_ICONS[h]
+        b.addEventListener('click', (e) => { e.stopPropagation(); editor.setStyle(key, h); restyle() })
+        r.appendChild(b)
+      }
+      headRows[key] = r
+    }
     function restyle() {
       const c2 = editor.currentStyles()
       colors.querySelectorAll('.qd-dot').forEach((b, i) => b.classList.toggle('on', COLOR_IDS[i] === c2.color))
@@ -405,6 +430,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       fills.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', FILL_IDS[i] === c2.fill))
       fonts.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', FONT_IDS[i] === c2.font))
       aligns.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', ALIGN_IDS[i] === c2.align))
+      for (const key in headRows) headRows[key].querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', HEAD_IDS[i] === c2[key]))
       refresh()
     }
   }

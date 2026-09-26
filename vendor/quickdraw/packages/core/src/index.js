@@ -6,11 +6,11 @@ export { Editor, TOOLS, ALIGN_MODES } from './editor.js'
 export { Store, newId, isDiffEmpty, invertDiff, composeDiff } from './store.js'
 export { buildUI } from './ui.js'
 export {
-  themeOf, THEMES, COLOR_IDS, SIZE_IDS, DASH_IDS, FILL_IDS, GEO_IDS, GRID_IDS, FONT_IDS, ALIGN_IDS,
+  themeOf, THEMES, COLOR_IDS, SIZE_IDS, DASH_IDS, FILL_IDS, GEO_IDS, GRID_IDS, FONT_IDS, ALIGN_IDS, HEAD_IDS,
   SIZES, FONT_SIZES, FONTS,
 } from './palette.js'
 export {
-  pageBounds, localBounds, drawShape, hitShape, imageFrame, runsIn, mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout,
+  pageBounds, localBounds, drawShape, hitShape, imageFrame, runsIn, mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout, lineHeads,
   markAt, hasMark, setMark, normalizeMarks, textHitAt, textOffsetAt,
 } from './shapes.js'
 export { openUrl, normalizeText } from './editor.js'

@@ -15,6 +15,8 @@ export type DashId = 'draw' | 'solid' | 'dashed' | 'dotted'
 export type FillId = 'none' | 'semi' | 'solid' | 'pattern'
 export type FontId = 'draw' | 'sans' | 'serif' | 'mono'
 export type TextAlignId = 'start' | 'middle' | 'end'
+/** What an arrow or line wears at an end. */
+export type HeadId = 'none' | 'arrow' | 'triangle' | 'dot'
 export type GeoId = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'hexagon' | 'star' | 'cloud'
 export type ThemeId = 'light' | 'dark'
 export type GridId = 'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso'
@@ -57,6 +59,12 @@ export interface Styles {
   font: FontId
   /** Text shapes only. */
   align: TextAlignId
+  /**
+   * Arrows and lines only: the head at each end. Any head makes the shape
+   * an arrow; none at all makes it a line — the two are interchangeable.
+   */
+  headStart: HeadId
+  headEnd: HeadId
 }
 
 export type ShapeType =
@@ -151,6 +159,7 @@ export const GEO_IDS: GeoId[]
 export const GRID_IDS: GridId[]
 export const FONT_IDS: FontId[]
 export const ALIGN_IDS: TextAlignId[]
+export const HEAD_IDS: HeadId[]
 export const THEMES: Record<ThemeId, Theme>
 export const SIZES: Record<SizeId, number>
 export const FONT_SIZES: Record<SizeId, number>
@@ -164,6 +173,8 @@ export function composeDiff(a: Diff, b: Diff): Diff
 
 /** Local (unrotated, origin-relative) bounds of a shape. */
 export function localBounds(shape: ShapeRecord): Bounds
+/** The head at each end of an arrow or line (an arrow without explicit heads wears one at its end). */
+export function lineHeads(shape: ShapeRecord): { start: HeadId; end: HeadId }
 /** Axis-aligned page bounds of a shape, rotation included. */
 export function pageBounds(shape: ShapeRecord): Bounds
 /** The runs covering [from, to) of a text: [start, end, style]; unmarked stretches get an empty style. */
