@@ -1,6 +1,6 @@
 import * as React from 'react'
 import type {
-  Camera, Diff, DiffSource, Editor, BoardUI, GridId, Snapshot, Store, Styles, ThemeId,
+  Camera, Diff, DiffSource, Editor, BoardUI, GridId, SnapSettings, Snapshot, Store, Styles, ThemeId,
 } from '@quickdrawjs/core'
 
 export * from '@quickdrawjs/core'
@@ -23,6 +23,8 @@ export interface QuickdrawProps {
   themeToggle?: boolean
   /** Show the grid switch in the board menu (default true). */
   gridControl?: boolean
+  /** Snapping settings (live-switchable); the board menu can move them too. */
+  snap?: Partial<SnapSettings>
   /** Show the minimap in the top-right corner (default true). */
   minimap?: boolean
   /** When the undo/redo/duplicate/delete pill shows: 'touch' (default) | 'always' | 'never'. */
@@ -46,6 +48,8 @@ export interface QuickdrawProps {
   onThemeChange?: (theme: ThemeId, editor: Editor) => void
   /** The in-board switch changed the grid. */
   onGridChange?: (grid: GridId, editor: Editor) => void
+  /** A snapping toggle in the board menu moved. */
+  onSnapChange?: (snap: SnapSettings, editor: Editor) => void
   /** Intercept toolbar PNG export (default: browser download). */
   onSave?: (blob: Blob, background: boolean) => void
   className?: string

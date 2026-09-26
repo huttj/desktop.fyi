@@ -1,5 +1,5 @@
 import type { Editor, ShapeRecord } from '@quickdrawjs/core'
-import { GHOST_ALPHA, alphaAt, canSee, provisionalAge, visibilityAt } from '../shared/freshness'
+import { GHOST_ALPHA, alphaAt, canSee, fadeAt, provisionalAge, visibilityAt } from '../shared/freshness'
 import type { ItemMeta } from '../shared/types'
 
 /** Which layers are on screen: everything, one person's (their id), or 'owner' before the owner is known. */
@@ -39,6 +39,13 @@ export function installFreshness(editor: Editor, state: FreshnessState): () => v
   }
   editor.shapeFilter = (s) => decide(s) > 0
   editor.shapeAlpha = decide
+  // fading things drain of colour toward a warm grey before they thin out
+  editor.shapeFade = (shape) => {
+    const meta = state.metas.get(shape.id)
+    if (!meta) return 1
+    const age = provisionalAge(meta, Date.now())
+    return visibilityAt(age) === 'hidden' ? 0 : fadeAt(age)
+  }
   // other people's things are theirs alone to move or edit
   editor.shapeLocked = (s) => {
     const meta = state.metas.get(s.id)
@@ -50,6 +57,7 @@ export function installFreshness(editor: Editor, state: FreshnessState): () => v
     clearInterval(timer)
     editor.shapeFilter = null
     editor.shapeAlpha = null
+    editor.shapeFade = null
     editor.shapeLocked = null
     editor.requestRender()
   }

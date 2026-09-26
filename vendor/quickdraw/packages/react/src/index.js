@@ -40,6 +40,7 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
   const {
     theme = 'light',
     grid = 'lines',
+    snap,
     readonly = false,
     hideUi = false,
     themeToggle = true,
@@ -57,6 +58,7 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
     onSelectionChange,
     onThemeChange,
     onGridChange,
+    onSnapChange,
     onSave,
     className,
     style,
@@ -68,7 +70,7 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
 
   // latest callbacks without re-mounting the editor
   const cbRef = useRef({})
-  cbRef.current = { onMount, onChange, onSelectionChange, onThemeChange, onGridChange, onSave }
+  cbRef.current = { onMount, onChange, onSelectionChange, onThemeChange, onGridChange, onSnapChange, onSave }
 
   // mount once (per store identity); everything else updates in place
   useEffect(() => {
@@ -80,6 +82,7 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
       store: store || new Store(),
       theme,
       grid,
+      snap,
       readonly,
       camera,
       styles,
@@ -125,6 +128,9 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
     const unsubGrid = editor.on('grid', () => {
       cbRef.current.onGridChange?.(editor.grid, editor)
     })
+    const unsubSnap = editor.on('snap', () => {
+      cbRef.current.onSnapChange?.({ ...editor.snap }, editor)
+    })
 
     let ro = null
     if (autoFit) {
@@ -144,6 +150,7 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
       unsubSel()
       unsubTheme()
       unsubGrid()
+      unsubSnap()
       mark?.remove()
       ui.destroy()
       editor.destroy()
@@ -164,6 +171,10 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
   useEffect(() => {
     editorRef.current?.setGrid(grid)
   }, [grid])
+
+  useEffect(() => {
+    if (snap) editorRef.current?.setSnap(snap)
+  }, [snap?.edges, snap?.gaps])
 
   useEffect(() => {
     const editor = editorRef.current

@@ -351,15 +351,22 @@ export interface EditorOptions {
   store?: Store
   theme?: ThemeId | string
   grid?: GridId
+  snap?: Partial<SnapSettings>
   readonly?: boolean
   camera?: Camera
   styles?: Partial<Styles>
   geoKind?: GeoId
 }
 
+/** Snapping: onto other boxes' edges, centre lines and sizes; and into even gaps. */
+export interface SnapSettings {
+  edges: boolean
+  gaps: boolean
+}
+
 export type EditorEvent =
   | 'change' | 'history' | 'camera' | 'tool' | 'styles' | 'selection'
-  | 'theme' | 'grid' | 'edit' | 'scribbles' | 'penmode' | 'help'
+  | 'theme' | 'grid' | 'snap' | 'edit' | 'scribbles' | 'penmode' | 'help'
   | 'crop' | 'contextmenu'
 
 /**
@@ -375,6 +382,7 @@ export class Editor {
   store: Store
   theme: Theme
   grid: GridId
+  snap: SnapSettings
   readonly: boolean
   camera: Camera
   styles: Styles
@@ -392,6 +400,8 @@ export class Editor {
   shapeFilter: ((shape: ShapeRecord) => boolean) | null
   /** Host hook: how opaque a shape draws on screen (0..1). */
   shapeAlpha: ((shape: ShapeRecord) => number) | null
+  /** Host hook: how much of its colour a shape keeps (1 full, 0 a warm sepia grey): images and ink alike. */
+  shapeFade: ((shape: ShapeRecord) => number) | null
   /** Host hook: a shape this returns true for cannot be picked up by the pointer (it still draws, its links open, the eraser reaches it). */
   shapeLocked: ((shape: ShapeRecord) => boolean) | null
   /** Host hook: how a followed link opens (default `openUrl`, a new tab). */
@@ -423,6 +433,8 @@ export class Editor {
   setTheme(id: ThemeId | string): void
   /** 'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso' — the backdrop behind the drawing. */
   setGrid(id: GridId): void
+  /** What a dragged or resized box settles onto; fires 'snap'. */
+  setSnap(patch: Partial<SnapSettings>): void
   setReadonly(ro: boolean): void
   setPenMode(on: boolean): void
   setStyle<K extends keyof Styles>(key: K, value: Styles[K]): void

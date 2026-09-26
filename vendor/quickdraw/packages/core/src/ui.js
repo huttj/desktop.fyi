@@ -508,7 +508,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     item('fit', 'Zoom to fit', '⇧1', () => editor.fitContent({ animate: 220 }))
     item('trash', 'Clear board', '⇧⌘⌫', () => editor.clearBoard())
 
-    if (opts.gridControl || opts.themeToggle) p.appendChild(el('i', 'qd-menu-div'))
+    if (opts.gridControl) p.appendChild(el('i', 'qd-menu-div'))
     if (opts.gridControl) {
       // six buttons inline read as clutter — the backdrops live in a flyout
       subRow(p, {
@@ -535,6 +535,20 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
         },
       })
     }
+    // snapping: what a dragged or resized box settles onto
+    const checkRow = (label, tip, get, set) => {
+      const b = el('button', 'qd-menu-item')
+      b.innerHTML = '<span class="qd-mi-ico"></span><span class="qd-mi-label"></span><span class="qd-mi-check"></span>'
+      b.querySelector('.qd-mi-label').textContent = label
+      b.title = tip
+      const paint = () => { b.querySelector('.qd-mi-check').innerHTML = get() ? ICONS.check : '' }
+      paint()
+      b.addEventListener('click', (e) => { e.stopPropagation(); set(!get()); paint() })
+      p.appendChild(b)
+    }
+    p.appendChild(el('i', 'qd-menu-div'))
+    checkRow('Snap to edges', 'Dragged and resized boxes settle onto other boxes\' edges, centres and sizes', () => editor.snap.edges, (on) => editor.setSnap({ edges: on }))
+    checkRow('Snap to gaps', 'Boxes settle into even spacing: the gap next door, or the middle of two', () => editor.snap.gaps, (on) => editor.setSnap({ gaps: on }))
     if (opts.themeToggle) {
       segment('Theme', ['light', 'dark'], {
         icons: { light: ICONS.sun, dark: ICONS.moon },

@@ -62,6 +62,7 @@ const rotateCursor = (deg) => {
 }
 const LONG_PRESS = 500 // ms of a still touch before the context menu opens
 const SNAP_PX = 6 // screen pixels within which a moving edge settles onto another
+const FADE_TONE = 'hsl(36, 22%, 50%)' // the warm grey a fading shape's colour drains toward (see shapeFade)
 // the empty space between two boxes (0 when they touch or overlap)
 const rectGap = (a, b) => {
   const dx = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w))
@@ -83,11 +84,15 @@ const bendMidpoint = (pr) => {
 }
 
 export class Editor {
-  constructor({ container, store, theme = 'light', grid = 'lines', readonly = false, camera, styles, geoKind } = {}) {
+  constructor({ container, store, theme = 'light', grid = 'lines', readonly = false, camera, styles, geoKind, snap } = {}) {
     this.container = container
     this.store = store || new Store()
     this.theme = themeOf(theme)
     this.grid = GRID_IDS.includes(grid) ? grid : 'lines'
+    // What a dragged or resized box settles onto: other boxes' edges, centre
+    // lines and sizes; and the gaps between boxes (equal spacing, or the
+    // middle of two). Either can be switched off in the board menu.
+    this.snap = { edges: true, gaps: true, ...(snap || {}) }
     this.readonly = !!readonly
     this.camera = camera || { x: 0, y: 0, z: 1 }
     // Host hooks: decide per shape whether it is on the board at all (a
@@ -95,6 +100,10 @@ export class Editor {
     // and how opaque it draws (0..1). Both optional, read on every render.
     this.shapeFilter = null
     this.shapeAlpha = null
+    // Host hook: how much of its colour a shape keeps on screen (1 full, 0 a
+    // warm grey), for things that are fading out. Drawn through a scratch
+    // canvas, so images and ink alike lose their colour, not their shape.
+    this.shapeFade = null
     // Host hook: a shape this returns true for is locked — the pointer never
     // picks it up (no press, marquee, double-click or context menu), though
     // it still draws, links still open, and the eraser still reaches it.
@@ -401,6 +410,10 @@ export class Editor {
     }
   }
   // 'none' | 'lines' | 'dots' — the backdrop behind the drawing
+  setSnap(patch) {
+    this.snap = { ...this.snap, ...patch }
+    this.emit('snap')
+  }
   setGrid(id) {
     if (!GRID_IDS.includes(id) || id === this.grid) return
     this.grid = id
@@ -1830,14 +1843,19 @@ export class Editor {
         const guides = []
         const mx = { x: b.x + dx, w: b.w }, my = { y: b.y + dy, h: b.h }
         const box = { x: b.x + dx, y: b.y + dy, w: b.w, h: b.h }
+        const gaps = this.snap.gaps ? this._gapCandidates(box, cands.boxes, { between: true }) : null
         if (!(ss.shift && dx === 0)) {
-          const sx = this._snapAxis([mx.x, mx.x + mx.w / 2, mx.x + mx.w], cands.xs, tol, box)
-          if (sx) { dx += sx.d; guides.push({ axis: 'x', at: sx.at, from: Math.min(my.y, sx.b.y), to: Math.max(my.y + my.h, sx.b.y + sx.b.h) }) }
+          const sx = this.snap.edges ? this._snapAxis([mx.x, mx.x + mx.w / 2, mx.x + mx.w], cands.xs, tol, box) : null
+          const gx = gaps ? this._pickBest(this._snapAxis([mx.x], gaps.left, tol, box), this._snapAxis([mx.x + mx.w], gaps.right, tol, box)) : null
+          if (gx && (!sx || gx.score < sx.score)) { dx += gx.d; guides.push({ axis: 'gx', spans: gx.b.spans, shift: gx.d }) }
+          else if (sx) { dx += sx.d; guides.push({ axis: 'x', at: sx.at, from: Math.min(my.y, sx.b.y), to: Math.max(my.y + my.h, sx.b.y + sx.b.h) }) }
         }
         if (!(ss.shift && dy === 0)) {
-          const sy = this._snapAxis([my.y, my.y + my.h / 2, my.y + my.h], cands.ys, tol, box)
+          const sy = this.snap.edges ? this._snapAxis([my.y, my.y + my.h / 2, my.y + my.h], cands.ys, tol, box) : null
+          const gy = gaps ? this._pickBest(this._snapAxis([my.y], gaps.top, tol, box), this._snapAxis([my.y + my.h], gaps.bottom, tol, box)) : null
           const fx = b.x + dx // the box's settled left, after any x snap
-          if (sy) { dy += sy.d; guides.push({ axis: 'y', at: sy.at, from: Math.min(fx, sy.b.x), to: Math.max(fx + b.w, sy.b.x + sy.b.w) }) }
+          if (gy && (!sy || gy.score < sy.score)) { dy += gy.d; guides.push({ axis: 'gy', spans: gy.b.spans, shift: gy.d }) }
+          else if (sy) { dy += sy.d; guides.push({ axis: 'y', at: sy.at, from: Math.min(fx, sy.b.x), to: Math.max(fx + b.w, sy.b.x + sy.b.w) }) }
         }
         if (guides.length) ss.snapGuides = guides
       }
@@ -1854,8 +1872,10 @@ export class Editor {
   // the overlay draws the line it settled on. ⌘ (or ctrl on Windows) held
   // while dragging turns it off.
   // Only what is on screen (a little past its edges) offers lines to settle on.
+  // A resize also settles onto matching sizes: pull a box to the height of
+  // the one beside it and it lands exactly there (ws/hs).
   _snapCandidates(excludeIds) {
-    const xs = [], ys = []
+    const xs = [], ys = [], ws = [], hs = [], boxes = []
     const vp = this.viewportPageBounds()
     const onScreen = vp.w > 1 && vp.h > 1 ? boundsExpand(vp, Math.max(vp.w, vp.h) * 0.25) : null
     for (const s of this.shapesSorted()) {
@@ -1864,8 +1884,59 @@ export class Editor {
       if (onScreen && (b.x + b.w < onScreen.x || b.x > onScreen.x + onScreen.w || b.y + b.h < onScreen.y || b.y > onScreen.y + onScreen.h)) continue
       xs.push({ at: b.x, b }, { at: b.x + b.w / 2, b }, { at: b.x + b.w, b })
       ys.push({ at: b.y, b }, { at: b.y + b.h / 2, b }, { at: b.y + b.h, b })
+      ws.push({ at: b.w, b })
+      hs.push({ at: b.h, b })
+      boxes.push(b)
     }
-    return { xs, ys }
+    return { xs, ys, ws, hs, boxes }
+  }
+  _pickBest(...found) {
+    let best = null
+    for (const f of found) if (f && (!best || f.score < best.score)) best = f
+    return best
+  }
+  // Gaps, the way a layout tool keeps spacing even. Along each axis, the
+  // boxes in the moving box's row (they overlap it crosswise) offer:
+  //   - the gap between two neighbours, repeated next to any of them: the
+  //     box settles so its gap to that neighbour equals theirs
+  //   - the middle of two neighbours it fits between (translating only)
+  // Each candidate places the box's leading or trailing edge, and carries the
+  // two equal gaps to draw. `boxes` is what is on screen, excluding the box.
+  _gapCandidates(box, boxes, { between = false } = {}) {
+    const out = { left: [], right: [], top: [], bottom: [] }
+    const axes = [
+      { lead: 'left', trail: 'right', pos: (b) => b.x, size: (b) => b.w, cpos: (b) => b.y, csize: (b) => b.h },
+      { lead: 'top', trail: 'bottom', pos: (b) => b.y, size: (b) => b.h, cpos: (b) => b.x, csize: (b) => b.w },
+    ]
+    for (const a of axes) {
+      const end = (b) => a.pos(b) + a.size(b)
+      const overlap = (p, q) => Math.min(a.cpos(p) + a.csize(p), a.cpos(q) + a.csize(q)) - Math.max(a.cpos(p), a.cpos(q))
+      const mid = (p, q) => (Math.max(a.cpos(p), a.cpos(q)) + Math.min(a.cpos(p) + a.csize(p), a.cpos(q) + a.csize(q))) / 2
+      const row = boxes.filter((b) => overlap(b, box) > 0).sort((p, q) => a.pos(p) - a.pos(q))
+      // adjacent pairs in the row, and the gap between them
+      const pairs = []
+      for (const p of row) {
+        for (const q of row) {
+          if (q === p || end(p) >= a.pos(q) || overlap(p, q) <= 0) continue
+          if (row.some((r) => r !== p && r !== q && end(p) <= a.pos(r) && end(r) <= a.pos(q) && overlap(r, p) > 0)) continue
+          pairs.push({ p, q, g: a.pos(q) - end(p) })
+        }
+      }
+      const span = (from, to, at) => ({ from, to, at })
+      for (const { p, q, g } of pairs) {
+        for (const n of row) {
+          // the box after n with the same gap: its leading edge at n's end + g
+          out[a.lead].push({ at: end(n) + g, b: { spans: [span(end(p), a.pos(q), mid(p, q)), span(end(n), end(n) + g, mid(n, box))], x: n.x, y: n.y, w: n.w, h: n.h } })
+          // the box before n with the same gap: its trailing edge at n's start - g
+          out[a.trail].push({ at: a.pos(n) - g, b: { spans: [span(end(p), a.pos(q), mid(p, q)), span(a.pos(n) - g, a.pos(n), mid(n, box))], x: n.x, y: n.y, w: n.w, h: n.h } })
+        }
+        if (between && g > a.size(box)) {
+          const lead = end(p) + (g - a.size(box)) / 2
+          out[a.lead].push({ at: lead, b: { spans: [span(end(p), lead, mid(p, box)), span(lead + a.size(box), a.pos(q), mid(q, box))], x: p.x, y: p.y, w: p.w, h: p.h } })
+        }
+      }
+    }
+    return out
   }
   // The candidate to settle on, within tol of any moving line: the nearest
   // thing wins, so a neighbour beats a far-off edge that happens to line up
@@ -1892,36 +1963,91 @@ export class Editor {
   // proportional on shift, and always for shapes that only scale as a whole
   // (images, notes, text). A side pull on a whole-scaling shape scales it as
   // a whole by that axis, so its far edge stays pinned instead of drifting;
-  // text takes a side pull as its wrap width (see scaleShape).
-  _resizeScales(handle, sx, sy, shapes, e) {
+  // text takes a side pull as its wrap width (see scaleShape). `lead` names
+  // the axis that snapped, so a proportional pull keeps that one exact and
+  // lets the other follow.
+  _resizeScales(handle, sx, sy, shapes, e, lead = null) {
     const corner = handle.length === 2
     const whole = shapes.every((sh) => ['image', 'text', 'note'].includes(sh.type))
-    if (corner && (e.shiftKey || whole)) { const s = Math.max(sx, sy); return [s, s] }
+    if (corner && (e.shiftKey || whole)) { const s = lead === 'y' ? sy : lead === 'x' ? sx : Math.max(sx, sy); return [s, s] }
     return [sx, sy]
+  }
+  _proportional(handle, shapes, e) {
+    return handle.length === 2 && (e.shiftKey || shapes.every((sh) => ['image', 'text', 'note'].includes(sh.type)))
   }
   // ⌥ (or ctrl) resizes about the centre instead of the far edge
   _fromCenter(e) { return !!(e.altKey || e.ctrlKey) }
+  // The pulled edge settles onto other shapes' edges and centre lines, or
+  // onto a size that matches a neighbour's (so a box pulled to the height
+  // of the one beside it lands exactly there). Returns the settled pointer,
+  // the guides to draw, and which axis led.
+  _snapResize(p, handle, init, center, orig) {
+    const tol = SNAP_PX / this.camera.z
+    const ss = this.session
+    const cands = ss.cands || (ss.cands = this._snapCandidates(new Set(orig.keys())))
+    const guides = []
+    let { x: px, y: py } = p
+    let dx = null, dy = null
+    const gaps = this.snap.gaps ? this._gapCandidates(init, cands.boxes) : null
+    const axis = (pulled, coord, ax, span, edges, sizes, gapCands) => {
+      if (!pulled) return null
+      const edge = this.snap.edges ? this._snapAxis([coord], edges, tol, init) : null
+      // the size this pull comes to, and the neighbour size it could match
+      const size = center ? Math.abs(coord - ax) * 2 : Math.abs(coord - ax)
+      const dim = this.snap.edges ? this._snapAxis([size], sizes, tol, init) : null
+      // or the pulled edge leaves a gap equal to one nearby
+      const gap = gapCands ? this._snapAxis([coord], gapCands, tol, init) : null
+      const best = this._pickBest(edge, dim, gap)
+      if (!best) return null
+      if (best === edge) return { at: edge.at, d: edge.d, guide: { edge } }
+      if (best === gap) return { at: gap.at, d: gap.d, guide: { gap } }
+      const to = size + dim.d
+      const at = ax + Math.sign(coord - ax || 1) * (center ? to / 2 : to)
+      return { at, d: at - coord, guide: { dim, size: to } }
+    }
+    const sx = axis(handle.includes('l') || handle.includes('r'), px, center ? init.x + init.w / 2 : handle.includes('l') ? init.x + init.w : init.x, init.w, cands.xs, cands.ws, gaps && (handle.includes('l') ? gaps.left : gaps.right))
+    const sy = axis(handle.includes('t') || handle.includes('b'), py, center ? init.y + init.h / 2 : handle.includes('t') ? init.y + init.h : init.y, init.h, cands.ys, cands.hs, gaps && (handle.includes('t') ? gaps.top : gaps.bottom))
+    // a proportional pull can only honour one axis: the one that settled closer
+    const proportional = this._proportional(handle, [...orig.values()], ss.event || {})
+    let lead = null
+    if (sx && sy) lead = Math.abs(sy.d) <= Math.abs(sx.d) ? 'y' : 'x'
+    else if (sx) lead = 'x'
+    else if (sy) lead = 'y'
+    const useX = sx && (!proportional || lead === 'x')
+    const useY = sy && (!proportional || lead === 'y')
+    if (useX) { px = sx.at; dx = sx.d }
+    if (useY) { py = sy.at; dy = sy.d }
+    // the box as it comes to be, for the guides
+    const box = (() => {
+      const w = handle.includes('l') || handle.includes('r') ? (center ? Math.abs(px - (init.x + init.w / 2)) * 2 : Math.abs(px - (handle.includes('l') ? init.x + init.w : init.x))) : init.w
+      const h = handle.includes('t') || handle.includes('b') ? (center ? Math.abs(py - (init.y + init.h / 2)) * 2 : Math.abs(py - (handle.includes('t') ? init.y + init.h : init.y))) : init.h
+      const x = handle.includes('l') ? (center ? init.x + init.w / 2 - w / 2 : init.x + init.w - w) : center && handle.includes('r') ? init.x + init.w / 2 - w / 2 : init.x
+      const y = handle.includes('t') ? (center ? init.y + init.h / 2 - h / 2 : init.y + init.h - h) : center && handle.includes('b') ? init.y + init.h / 2 - h / 2 : init.y
+      return { x, y, w, h }
+    })()
+    if (useX) {
+      if (sx.guide.edge) guides.push({ axis: 'x', at: sx.at, from: Math.min(box.y, sx.guide.edge.b.y), to: Math.max(box.y + box.h, sx.guide.edge.b.y + sx.guide.edge.b.h) })
+      else if (sx.guide.gap) guides.push({ axis: 'gx', spans: sx.guide.gap.b.spans })
+      else guides.push({ axis: 'w', box, b: sx.guide.dim.b })
+    }
+    if (useY) {
+      if (sy.guide.edge) guides.push({ axis: 'y', at: sy.at, from: Math.min(box.x, sy.guide.edge.b.x), to: Math.max(box.x + box.w, sy.guide.edge.b.x + sy.guide.edge.b.w) })
+      else if (sy.guide.gap) guides.push({ axis: 'gy', spans: sy.guide.gap.b.spans })
+      else guides.push({ axis: 'h', box, b: sy.guide.dim.b })
+    }
+    return { p: { x: px, y: py }, guides, lead: useX && useY ? lead : useX ? 'x' : useY ? 'y' : null }
+  }
   _dragResize(p, e) {
     const ss = this.session
     if (ss.rotated) return this._dragResizeRotated(p, e)
     const { handle, init } = ss
     const center = this._fromCenter(e)
-    // the pulled edges settle onto other shapes' edges and centre lines
     ss.snapGuides = null
+    ss.event = e
+    let lead = null
     if (!e.metaKey) {
-      const tol = SNAP_PX / this.camera.z
-      const cands = ss.cands || (ss.cands = this._snapCandidates(new Set(ss.orig.keys())))
-      const guides = []
-      let { x: px, y: py } = p
-      if (handle.includes('l') || handle.includes('r')) {
-        const s = this._snapAxis([px], cands.xs, tol, init)
-        if (s) { px = s.at; guides.push({ axis: 'x', at: s.at, from: Math.min(init.y, s.b.y), to: Math.max(init.y + init.h, s.b.y + s.b.h) }) }
-      }
-      if (handle.includes('t') || handle.includes('b')) {
-        const s = this._snapAxis([py], cands.ys, tol, init)
-        if (s) { py = s.at; guides.push({ axis: 'y', at: s.at, from: Math.min(init.x, s.b.x), to: Math.max(init.x + init.w, s.b.x + s.b.w) }) }
-      }
-      if (guides.length) { ss.snapGuides = guides; p = { x: px, y: py } }
+      const snapped = this._snapResize(p, handle, init, center, ss.orig)
+      if (snapped.guides.length) { ss.snapGuides = snapped.guides; p = snapped.p; lead = snapped.lead }
     }
     const ax = center ? init.x + init.w / 2 : handle.includes('l') ? init.x + init.w : init.x // anchor
     const ay = center ? init.y + init.h / 2 : handle.includes('t') ? init.y + init.h : init.y
@@ -1934,7 +2060,7 @@ export class Editor {
       : 1
     sx = isFinite(sx) ? Math.max(0.02, sx) : 1
     sy = isFinite(sy) ? Math.max(0.02, sy) : 1
-    ;[sx, sy] = this._resizeScales(handle, sx, sy, [...ss.orig.values()], e)
+    ;[sx, sy] = this._resizeScales(handle, sx, sy, [...ss.orig.values()], e, lead)
     this.store.transact(() => {
       for (const [id, orig] of ss.orig) {
         if (!this.store.has(id)) continue
@@ -2794,8 +2920,8 @@ export class Editor {
       if (pb.x + pb.w < vis.x || pb.x > vis.x + vis.w || pb.y + pb.h < vis.y || pb.y > vis.y + vis.h) continue
       const alpha = this.shapeAlpha ? this.shapeAlpha(s) : 1
       if (alpha <= 0) continue
-      if (alpha < 1) { ctx.save(); ctx.globalAlpha *= alpha }
-      drawShape(ctx, s, {
+      const fade = this.shapeFade ? Math.max(0, Math.min(1, this.shapeFade(s))) : 1
+      const opts = {
         theme: this.theme, store: this.store, zoom: cam.z,
         ghost: this.session?.type === 'erasing' && this.session.hits.has(s.id),
         // the floating textarea is the visible text while editing — but only on
@@ -2804,10 +2930,53 @@ export class Editor {
         // the whole picture ghosts around the crop window — on screen only
         cropPreview: hideEditing && this.cropping?.id === s.id,
         onAssetLoad: () => this.requestRender(),
-      })
+      }
+      if (alpha < 1) { ctx.save(); ctx.globalAlpha *= alpha }
+      if (fade < 1) this._drawFaded(ctx, s, opts, fade, cam, dpr, vis)
+      else drawShape(ctx, s, opts)
       if (alpha < 1) ctx.restore()
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0)
+  }
+
+  // A fading shape: drawn on a scratch canvas, toned toward a warm grey by
+  // `1 - fade` (the 'color' blend keeps its light and dark, swaps its hue and
+  // saturation for the tone's), masked back to its own pixels, and laid on
+  // the board. The scratch covers only the shape's on-screen box.
+  _drawFaded(ctx, s, opts, fade, cam, dpr, vis) {
+    const pb = boundsExpand(pageBounds(s), 24 / cam.z + 8)
+    // the part of the shape that is on screen, in device pixels
+    const x0 = Math.max(pb.x, vis.x), y0 = Math.max(pb.y, vis.y)
+    const x1 = Math.min(pb.x + pb.w, vis.x + vis.w), y1 = Math.min(pb.y + pb.h, vis.y + vis.h)
+    if (x1 <= x0 || y1 <= y0) return
+    const sw = Math.ceil((x1 - x0) * cam.z * dpr), sh = Math.ceil((y1 - y0) * cam.z * dpr)
+    if (sw > 8192 || sh > 8192) return drawShape(ctx, s, opts)
+    if (!this._fadeScratch) this._fadeScratch = [document.createElement('canvas'), document.createElement('canvas')]
+    const [a, b] = this._fadeScratch
+    for (const c of [a, b]) { if (c.width !== sw) c.width = sw; if (c.height !== sh) c.height = sh }
+    const actx = a.getContext('2d'), bctx = b.getContext('2d')
+    if (!actx || !bctx) return drawShape(ctx, s, opts)
+    actx.setTransform(1, 0, 0, 1, 0, 0)
+    actx.clearRect(0, 0, sw, sh)
+    actx.setTransform(cam.z * dpr, 0, 0, cam.z * dpr, -x0 * cam.z * dpr, -y0 * cam.z * dpr)
+    drawShape(actx, s, opts)
+    // its own pixels, for the mask
+    bctx.setTransform(1, 0, 0, 1, 0, 0)
+    bctx.clearRect(0, 0, sw, sh)
+    bctx.drawImage(a, 0, 0)
+    actx.setTransform(1, 0, 0, 1, 0, 0)
+    actx.globalCompositeOperation = 'color'
+    actx.globalAlpha = 1 - fade
+    actx.fillStyle = FADE_TONE
+    actx.fillRect(0, 0, sw, sh)
+    actx.globalAlpha = 1
+    actx.globalCompositeOperation = 'destination-in'
+    actx.drawImage(b, 0, 0)
+    actx.globalCompositeOperation = 'source-over'
+    ctx.save()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.drawImage(a, Math.round((x0 + cam.x) * cam.z * dpr), Math.round((y0 + cam.y) * cam.z * dpr))
+    ctx.restore()
   }
 
   // The lattice, drawn in device pixels so rules stay hairline-crisp at any
@@ -3100,6 +3269,50 @@ export class Editor {
       ctx.setLineDash([])
       const pad = 24 / cam.z
       for (const g of guides) {
+        if (g.axis === 'gx' || g.axis === 'gy') {
+          // equal gaps: a measure across each, with the distance
+          ctx.globalAlpha = 0.9
+          ctx.font = '10px system-ui, sans-serif'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'bottom'
+          ctx.fillStyle = t.selection
+          for (const sp of g.spans) {
+            // a translate's spans were measured before the box settled: the box's own gap moves by the shift
+            const a = g.axis === 'gx' ? this.pageToScreen(sp.from, sp.at) : this.pageToScreen(sp.at, sp.from)
+            const b = g.axis === 'gx' ? this.pageToScreen(sp.to, sp.at) : this.pageToScreen(sp.at, sp.to)
+            const tick = 4
+            ctx.beginPath()
+            if (g.axis === 'gx') {
+              const y = Math.round(a.y) + 0.5
+              ctx.moveTo(a.x, y); ctx.lineTo(b.x, y); ctx.moveTo(a.x, y - tick); ctx.lineTo(a.x, y + tick); ctx.moveTo(b.x, y - tick); ctx.lineTo(b.x, y + tick)
+              ctx.stroke()
+              ctx.fillText(String(Math.round(sp.to - sp.from)), (a.x + b.x) / 2, y - 3)
+            } else {
+              const x = Math.round(a.x) + 0.5
+              ctx.moveTo(x, a.y); ctx.lineTo(x, b.y); ctx.moveTo(x - tick, a.y); ctx.lineTo(x + tick, a.y); ctx.moveTo(x - tick, b.y); ctx.lineTo(x + tick, b.y)
+              ctx.stroke()
+              ctx.save(); ctx.translate(x - 3, (a.y + b.y) / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(String(Math.round(sp.to - sp.from)), 0, 0); ctx.restore()
+            }
+          }
+          ctx.globalAlpha = 0.5
+          continue
+        }
+        if (g.axis === 'w' || g.axis === 'h') {
+          // a matched size: a measure with end ticks beside each of the two boxes
+          for (const r of [g.box, g.b]) {
+            const off = 10 / cam.z, tick = 4
+            if (g.axis === 'h') {
+              const a = this.pageToScreen(r.x + r.w + off, r.y), b = this.pageToScreen(r.x + r.w + off, r.y + r.h)
+              const x = Math.round(a.x) + 0.5
+              ctx.beginPath(); ctx.moveTo(x, a.y); ctx.lineTo(x, b.y); ctx.moveTo(x - tick, a.y); ctx.lineTo(x + tick, a.y); ctx.moveTo(x - tick, b.y); ctx.lineTo(x + tick, b.y); ctx.stroke()
+            } else {
+              const a = this.pageToScreen(r.x, r.y + r.h + off), b = this.pageToScreen(r.x + r.w, r.y + r.h + off)
+              const y = Math.round(a.y) + 0.5
+              ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(b.x, y); ctx.moveTo(a.x, y - tick); ctx.lineTo(a.x, y + tick); ctx.moveTo(b.x, y - tick); ctx.lineTo(b.x, y + tick); ctx.stroke()
+            }
+          }
+          continue
+        }
         const a = g.axis === 'x' ? this.pageToScreen(g.at, g.from - pad) : this.pageToScreen(g.from - pad, g.at)
         const b = g.axis === 'x' ? this.pageToScreen(g.at, g.to + pad) : this.pageToScreen(g.to + pad, g.at)
         ctx.beginPath()

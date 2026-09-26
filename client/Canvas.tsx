@@ -1,4 +1,4 @@
-import { Quickdraw, openUrl, useQuickdrawStore, type Editor, type GridId, type ThemeId } from '@quickdrawjs/react'
+import { Quickdraw, openUrl, useQuickdrawStore, type Editor, type GridId, type SnapSettings, type ThemeId } from '@quickdrawjs/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Peer } from '../shared/protocol'
 import type { ItemMeta, Me, Profile } from '../shared/types'
@@ -58,6 +58,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
     readPref('dfyi:theme', ['light', 'dark'], window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
   )
   const [grid, setGrid] = useState<GridId>(() => readPref('dfyi:grid', GRIDS, 'dots'))
+  const [snap, setSnap] = useState<SnapSettings>(() => ({ edges: readPref('dfyi:snap-edges', ['1', '0'], '1') === '1', gaps: readPref('dfyi:snap-gaps', ['1', '0'], '1') === '1' }))
   const [status, setStatus] = useState<SyncStatus>('connecting')
   const [peers, setPeers] = useState<Peer[]>([])
   const [people, setPeople] = useState<People>(() => new Map())
@@ -425,6 +426,12 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
         onGridChange={(g) => {
           setGrid(g)
           writePref('dfyi:grid', g)
+        }}
+        snap={snap}
+        onSnapChange={(sn) => {
+          setSnap(sn)
+          writePref('dfyi:snap-edges', sn.edges ? '1' : '0')
+          writePref('dfyi:snap-gaps', sn.gaps ? '1' : '0')
         }}
       />
       {editor && watching && <Viewports editor={editor} peers={peers.filter((p) => p.sessionId === watching)} people={people} meId={me?.id ?? null} />}

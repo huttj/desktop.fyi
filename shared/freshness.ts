@@ -54,10 +54,10 @@ export const FRESHEN_BELOW = 0.5
 export const PROXIMITY_R0 = 260
 export const PROXIMITY_R_MAX = 1200
 
-/** Fading items never drop below this opacity while still visible. */
-export const MIN_VISIBLE_ALPHA = 0.14
+/** Fading items never drop below this opacity while still visible: they drain of colour first (see fadeAt). */
+export const MIN_VISIBLE_ALPHA = 0.55
 /** Hidden items the author chose to see. */
-export const GHOST_ALPHA = 0.22
+export const GHOST_ALPHA = 0.4
 
 export function falloff(distance: number): number {
   if (distance >= PROXIMITY_R_MAX) return 0
@@ -87,6 +87,13 @@ export function alphaAt(age: number): number {
   if (age >= HIDE_AT) return MIN_VISIBLE_ALPHA
   const t = (age - FADE_START) / (HIDE_AT - FADE_START)
   return 1 - t * (1 - MIN_VISIBLE_ALPHA)
+}
+
+/** How much colour a visible item keeps at this age: full while fresh, a warm grey by the edge of hiding. */
+export function fadeAt(age: number): number {
+  if (age <= FADE_START) return 1
+  if (age >= HIDE_AT) return 0
+  return 1 - (age - FADE_START) / (HIDE_AT - FADE_START)
 }
 
 /** Can this viewer see the item at all? Hidden items show only to their author. */

@@ -169,8 +169,10 @@ function History({ editor, id, handle, me, people, theme, onClose }: { editor: E
     if (!rec || rec.typeName !== 'shape' || rec.id !== id) return
     const current = editor.store.get(id)
     if (!current || current.typeName !== 'shape') return
-    // it comes back where the thing sits now in the stack, and in its current group
+    // it comes back where the thing sits now in the stack, and in its current group;
+    // an ordinary edit, so ⌘Z takes it back — the board gets the keys again for that
     editor.store.put({ ...rec, z: current.z, groupId: current.groupId }, 'user')
+    editor.container.focus({ preventScroll: true })
   }
 
   return (
