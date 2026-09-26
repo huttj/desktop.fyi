@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
 import { approxBounds, centreOf } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
-import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, canSee, provisionalAge } from '../shared/freshness'
+import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, SPREAD_CAP, canSee, falloff, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
 import type { DesktopStats, FeedItem, ItemMeta, PlacedItem, Revision } from '../shared/types'
 
@@ -33,6 +33,7 @@ type Row = {
   cx: number
   cy: number
   pinned: number
+  warmed: number
   [key: string]: SqlStorageValue
 }
 
@@ -111,6 +112,7 @@ export class BoardDurableObject extends DurableObject<Env> {
     `)
     const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(records)').toArray().map((c) => c.name)
     if (!columns.includes('pinned')) this.sql.exec('ALTER TABLE records ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
+    if (!columns.includes('warmed')) this.sql.exec('ALTER TABLE records ADD COLUMN warmed REAL NOT NULL DEFAULT 0')
   }
 
   private get sql() {
@@ -342,10 +344,16 @@ export class BoardDurableObject extends DurableObject<Env> {
     const owner = this.owner
     const accepted: WireDiff = { put: {}, removed: [] }
     const restore: BoardRecord[] = []
+    const drop: string[] = []
     const metas: Record<string, ItemMeta> = {}
 
     this.ctx.storage.transactionSync(() => {
       for (const rec of Object.values(diff.put)) {
+        // A picture without its image (an upload that died) is nothing: it does not land.
+        if (!this.pictureIsWhole(rec, diff)) {
+          drop.push(rec.id)
+          continue
+        }
         const existing = this.sql.exec<Row>('SELECT * FROM records WHERE id = ?', rec.id).toArray()[0]
         const isAsset = rec.typeName === 'asset'
         const { cx, cy } = isAsset ? { cx: 0, cy: 0 } : centreOf(rec)
@@ -355,7 +363,10 @@ export class BoardDurableObject extends DurableObject<Env> {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, 'live', ?, ?)`,
             rec.id, JSON.stringify(rec), isAsset ? 1 : 0, layer, userId, now, userId, now, now, cx, cy
           )
-          if (!isAsset) this.logEvent(rec.id, 'create', userId, now)
+          if (!isAsset) {
+            this.logEvent(rec.id, 'create', userId, now)
+            Object.assign(metas, this.warmNeighbours(rec.id, cx, cy))
+          }
           accepted.put[rec.id] = rec
           metas[rec.id] = metaOf(this.row(rec.id)!)
           continue
@@ -395,7 +406,33 @@ export class BoardDurableObject extends DurableObject<Env> {
         accepted.removed.push(id)
       }
     })
-    return { accepted, restore, metas, now }
+    return { accepted, restore, drop, metas, now }
+  }
+
+  /** An image shape is only whole with its asset: in this change, or already in the room. */
+  private pictureIsWhole(rec: BoardRecord, diff: WireDiff): boolean {
+    if (rec.typeName !== 'shape' || rec.type !== 'image') return true
+    const assetId = (rec.props as { assetId?: unknown }).assetId
+    if (typeof assetId !== 'string') return false
+    if (diff.put[assetId]?.typeName === 'asset') return true
+    return !!this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM records WHERE id = ? AND is_asset = 1 AND state = 'live'", assetId).toArray()[0]?.n
+  }
+
+  /**
+   * A new thing warms what it lands next to, right away: neighbours bank an
+   * "arrive" bump by distance, which the provisional age honours until the
+   * daily pass settles it from the create event.
+   */
+  private warmNeighbours(id: string, cx: number, cy: number): Record<string, ItemMeta> {
+    const metas: Record<string, ItemMeta> = {}
+    const rows = this.sql.exec<Row>("SELECT * FROM records WHERE state = 'live' AND is_asset = 0 AND id != ? AND pinned = 0", id).toArray()
+    for (const r of rows) {
+      const w = falloff(Math.hypot(cx - r.cx, cy - r.cy))
+      if (w < 0.01) continue
+      this.sql.exec('UPDATE records SET warmed = MIN(?, warmed + ?) WHERE id = ?', SPREAD_CAP, BUMP.arrive * w, r.id)
+      metas[r.id] = metaOf(this.row(r.id)!)
+    }
+    return metas
   }
 
   /**
@@ -442,7 +479,7 @@ export class BoardDurableObject extends DurableObject<Env> {
         const row = this.row(id)
         if (!row || row.state !== 'live' || row.is_asset) continue
         if (userId !== owner && userId !== row.author) continue
-        if (what.freshen) this.sql.exec('UPDATE records SET score = 0, scored_at = ?, pending = 0, edited_by = ?, edited_at = ? WHERE id = ?', now, userId, now, id)
+        if (what.freshen) this.sql.exec('UPDATE records SET score = 0, scored_at = ?, pending = 0, warmed = 0, edited_by = ?, edited_at = ? WHERE id = ?', now, userId, now, id)
         if (what.pinned !== undefined) this.sql.exec('UPDATE records SET pinned = ? WHERE id = ?', what.pinned ? 1 : 0, id)
         metas[id] = metaOf(this.row(id)!)
       }
@@ -483,15 +520,20 @@ export class BoardDurableObject extends DurableObject<Env> {
 
   /** Sends the accepted change to everyone who may see each record, and the bookkeeping to all. */
   private relay(result: RelayResult, sender: WebSocket) {
-    const { accepted, restore, metas, now } = result
+    const { accepted, restore, drop, metas, now } = result
+    if (drop.length) {
+      this.send(sender, { type: 'diff', diff: { put: {}, removed: drop } })
+      this.send(sender, { type: 'rejected', reason: 'That picture has no image, so it was not kept' })
+    }
     if (restore.length) {
       const put: Record<string, BoardRecord> = {}
       for (const rec of restore) put[rec.id] = rec
       this.send(sender, { type: 'diff', diff: { put, removed: [] } })
       this.send(sender, { type: 'rejected', reason: "That is someone else's: only they can change it" })
     }
+    // bookkeeping can touch more than the change did (a new thing warms its neighbours)
     const rows = new Map<string, Row>()
-    for (const id of Object.keys(accepted.put)) {
+    for (const id of new Set([...Object.keys(accepted.put), ...Object.keys(metas)])) {
       const r = this.row(id)
       if (r) rows.set(id, r)
     }
@@ -504,7 +546,10 @@ export class BoardDurableObject extends DurableObject<Env> {
         const r = rows.get(id)
         if (!r || !this.visibleTo(r, attachment.userId, now)) continue
         put[id] = rec
-        if (metas[id]) visibleMetas[id] = metas[id]!
+      }
+      for (const [id, meta] of Object.entries(metas)) {
+        const r = rows.get(id)
+        if (r && this.visibleTo(r, attachment.userId, now)) visibleMetas[id] = meta
       }
       if (ws !== sender && (Object.keys(put).length || accepted.removed.length)) {
         this.send(ws, { type: 'diff', diff: { put, removed: accepted.removed } })
@@ -541,10 +586,18 @@ export class BoardDurableObject extends DurableObject<Env> {
     this.ctx.storage.transactionSync(() => {
       for (const row of rows) {
         const score = result.scores.get(row.id) ?? row.score
-        this.sql.exec('UPDATE records SET score = ?, scored_at = ?, pending = 0 WHERE id = ?', score, now, row.id)
+        this.sql.exec('UPDATE records SET score = ?, scored_at = ?, pending = 0, warmed = 0 WHERE id = ?', score, now, row.id)
       }
       for (const id of result.archived) {
         this.sql.exec("UPDATE records SET state = 'archived', archived_at = ? WHERE id = ?", now, id)
+      }
+      // pictures whose image never came (or went): nothing to show, so nothing to keep
+      for (const r of rows) {
+        const rec = JSON.parse(r.data) as BoardRecord
+        if (!this.pictureIsWhole(rec, { put: {}, removed: [] })) {
+          this.sql.exec("UPDATE records SET state = 'archived', archived_at = ? WHERE id = ?", now, r.id)
+          result.archived.push(r.id)
+        }
       }
       this.sql.exec('DELETE FROM events')
       this.sql.exec("DELETE FROM records WHERE state = 'archived' AND archived_at < ?", now - PURGE_AFTER_DAYS * DAY_MS)
@@ -743,6 +796,8 @@ export class BoardDurableObject extends DurableObject<Env> {
 interface RelayResult {
   accepted: WireDiff
   restore: BoardRecord[]
+  /** Ids the sender should remove: they never landed. */
+  drop: string[]
   metas: Record<string, ItemMeta>
   now: number
 }
@@ -757,6 +812,7 @@ function metaOf(row: Row): ItemMeta {
     score: row.score,
     scoredAt: row.scored_at,
     pending: row.pending,
+    warmed: row.warmed,
     pinned: !!row.pinned,
   }
 }

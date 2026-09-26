@@ -1,4 +1,4 @@
-import { ARCHIVE_AT, BUMP, DAY_MS, DIRECT_CAP, HIDE_AT, SPREAD_CAP, TOTAL_CAP, falloff } from './freshness'
+import { ARCHIVE_AT, BUMP, DAY_MS, DIRECT_CAP, SPREAD_CAP, TOTAL_CAP, falloff } from './freshness'
 
 /**
  * The daily pass. Pure: give it every live item on a board, with where it
@@ -9,10 +9,10 @@ import { ARCHIVE_AT, BUMP, DAY_MS, DIRECT_CAP, HIDE_AT, SPREAD_CAP, TOTAL_CAP, f
  *   - time adds the days elapsed since the item was last scored
  *   - moving an item is a tiny bump, editing it a small one (capped together)
  *   - moving next to newer things is a small bump, scaled by distance
- *   - warmth spreads to stale things nearby, like heat: what an item earns
- *     (or its arrival) reaches each neighbour by inverse square, times how
- *     stale that neighbour is. A comment keeps the thing it sits on alive,
- *     and an old thing next to a new one gains the most
+ *   - warmth spreads, like heat: what an item earns (or its arrival, a big
+ *     one) reaches each neighbour by inverse square. Using a thing is what
+ *     keeps it: a comment keeps the thing it sits on alive, and a couple of
+ *     new things next to an old one bring it right back
  */
 export type EventKind = 'create' | 'move' | 'edit'
 
@@ -84,19 +84,16 @@ export function runDecay(items: DecayItem[], events: DecayEvent[], now: number):
   }
 
   // 4. Spread, like heat. A new item radiates an "arrive" bump; an edited or
-  //    moved one radiates what it earned. Either is a fresh act, so each
-  //    neighbour receives it by inverse square, scaled by how stale that
-  //    neighbour is (a fresh thing has nothing to gain), capped per receiver.
-  const ageNow = (i: DecayItem) => (i.pinned ? 0 : created.has(i.id) ? Math.max(0, (now - i.createdAt) / DAY_MS) : i.score + Math.max(0, now - i.scoredAt) / DAY_MS)
+  //    moved one radiates what it earned. Each neighbour receives it by
+  //    inverse square, capped per receiver; an age cannot drop below zero,
+  //    so a fresh thing simply stays fresh.
   const spread = new Map<string, number>()
   const sources: Array<[DecayItem, number]> = []
   for (const id of created) sources.push([byId.get(id)!, BUMP.arrive])
   for (const [id, amount] of direct) if (!created.has(id)) sources.push([byId.get(id)!, amount])
   for (const [src, amount] of sources) {
     for (const { item: b, w } of neighbours(src)) {
-      const staleness = Math.max(0, Math.min(1, ageNow(b) / HIDE_AT))
-      if (!staleness) continue
-      spread.set(b.id, Math.min(SPREAD_CAP, (spread.get(b.id) ?? 0) + amount * w * staleness))
+      spread.set(b.id, Math.min(SPREAD_CAP, (spread.get(b.id) ?? 0) + amount * w))
     }
   }
 

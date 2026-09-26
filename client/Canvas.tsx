@@ -291,6 +291,21 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   )
 
   useEffect(() => (editor ? installFreshness(editor, fresh.current) : undefined), [editor])
+  // The system's light/dark switch wins whenever it flips; a choice made here on the board holds until then.
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const follow = () => {
+      setTheme(mq.matches ? 'dark' : 'light')
+      try {
+        localStorage.removeItem('dfyi:theme')
+      } catch {
+        /* private mode */
+      }
+    }
+    mq.addEventListener('change', follow)
+    return () => mq.removeEventListener('change', follow)
+  }, [])
+
 
   // Watching: my camera follows theirs as it moves; touching the board myself ends it.
   useEffect(() => {

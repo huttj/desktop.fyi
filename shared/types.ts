@@ -53,6 +53,8 @@ export interface ItemMeta {
   scoredAt: number
   /** Direct bumps earned since then (capped); the provisional age subtracts these. */
   pending: number
+  /** Warmth from new things placed nearby since then (capped); also subtracted. */
+  warmed: number
   /** Kept things do not age ("Keep" in the UI). Set by the owner or the author. */
   pinned: boolean
 }

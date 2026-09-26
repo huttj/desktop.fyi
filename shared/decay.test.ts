@@ -51,22 +51,30 @@ describe('runDecay', () => {
     expect(r.scores.get('b')).toBeCloseTo(1 - BUMP.edit)
   })
 
-  it('a new item is fresh and warms its neighbours by distance, the staler the more', () => {
+  it('a new item is fresh and warms its neighbours by distance; two bring an old thing right back', () => {
     const old1 = item('near', { score: 2, cx: 0 })
     const old2 = item('far', { score: 2, cx: PROXIMITY_R0 * 3 })
     const young = item('young', { score: 0.2, cy: 0, cx: 0 })
     const fresh = item('new', { createdAt: T0 + DAY_MS / 2, scoredAt: T0 + DAY_MS / 2, cx: 0 })
     const r = runDecay([old1, old2, young, fresh], [{ itemId: 'new', kind: 'create' }], T0 + DAY_MS)
     expect(r.scores.get('new')).toBeCloseTo(0.5)
-    // at distance 0 the old one (age 3: fully stale) gets the whole "arrive" bump
+    // at distance 0 the old one gets the whole "arrive" bump
     expect(r.bumps.get('near')).toBeCloseTo(BUMP.arrive)
     expect(r.scores.get('near')).toBeCloseTo(3 - BUMP.arrive)
     // the one three radii away gets a tenth of that
     expect(r.bumps.get('far')).toBeCloseTo(BUMP.arrive / 10)
-    // the young one (age 1.2) gets its share of staleness
-    expect(r.bumps.get('young')).toBeCloseTo(BUMP.arrive * (1.2 / HIDE_AT))
+    // the young one cannot get younger than born
+    expect(r.scores.get('young')).toBeCloseTo(Math.max(0, 1.2 - BUMP.arrive))
     // and the newcomer itself gains nothing
     expect(r.bumps.get('new')).toBe(0)
+    // two arrivals next to a thing on its last legs put it back near full
+    const dying = item('dying', { score: 1.8, cx: 5000 }) // 7% by the time of the pass
+    const two = runDecay(
+      [dying, item('n1', { createdAt: T0 + DAY_MS / 2, scoredAt: T0 + DAY_MS / 2, cx: 5000 }), item('n2', { createdAt: T0 + DAY_MS / 2, scoredAt: T0 + DAY_MS / 2, cx: 5000 })],
+      [{ itemId: 'n1', kind: 'create' }, { itemId: 'n2', kind: 'create' }],
+      T0 + DAY_MS
+    )
+    expect(pointsOf(two.scores.get('dying')!)).toBeGreaterThan(60)
   })
 
   it('moving next to something newer earns a small bump', () => {
@@ -75,7 +83,7 @@ describe('runDecay', () => {
     const r = runDecay([mover, newer], [{ itemId: 'mover', kind: 'move' }], T0 + DAY_MS)
     const w = 1 / (1 + (50 / PROXIMITY_R0) ** 2)
     expect(r.bumps.get('mover')).toBeCloseTo(BUMP.move + BUMP.near * w)
-    // and the neighbour catches the warmth of the move, by how stale it is (age 3: fully)
+    // and the neighbour catches the warmth of the move
     expect(r.bumps.get('newer')).toBeCloseTo(BUMP.move * w)
   })
 
@@ -105,6 +113,8 @@ describe('freshness', () => {
     const meta = { score: 1, scoredAt: T0, pending: days(5) }
     expect(provisionalAge(meta, T0 + DAY_MS)).toBeCloseTo(2 - days(5))
     expect(provisionalAge({ ...meta, pending: 10 }, T0 + DAY_MS)).toBeCloseTo(2 - DIRECT_CAP)
+    // warmth from new neighbours counts right away too
+    expect(provisionalAge({ ...meta, warmed: days(33) }, T0 + DAY_MS)).toBeCloseTo(2 - days(5) - days(33))
   })
 
   it('reads as a score out of 100 that runs out at hiding', () => {

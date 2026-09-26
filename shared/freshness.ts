@@ -38,15 +38,15 @@ export const BUMP = {
   edit: days(5),
   /** Moving next to something newer: 3 points, scaled by distance. */
   near: days(3),
-  /** A new arrival warms its neighbours by up to 5 points, the older they are the more. */
-  arrive: days(5),
+  /** A new arrival warms its neighbours by up to 33 points (by distance): using a thing is what keeps it. */
+  arrive: days(33),
 } as const
 /** The most direct bumps one item can bank in a day (15 points). */
 export const DIRECT_CAP = days(15)
-/** The most it can gain from its neighbours in a day (10 points). */
-export const SPREAD_CAP = days(10)
-/** The most one item can gain in total per day (20 points). */
-export const TOTAL_CAP = days(20)
+/** The most it can gain from its neighbours in a day: a full life. */
+export const SPREAD_CAP = days(100)
+/** The most one item can gain in total per day: a full life. */
+export const TOTAL_CAP = days(100)
 /** Freshen is offered once less than half a life is left. */
 export const FRESHEN_BELOW = 0.5
 
@@ -66,10 +66,10 @@ export function falloff(distance: number): number {
 }
 
 /** Age in days right now, before the next daily pass makes it official. */
-export function provisionalAge(meta: Pick<ItemMeta, 'score' | 'scoredAt' | 'pending'> & { pinned?: boolean }, now: number): number {
+export function provisionalAge(meta: Pick<ItemMeta, 'score' | 'scoredAt' | 'pending'> & { pinned?: boolean; warmed?: number }, now: number): number {
   if (meta.pinned) return 0
   const elapsed = Math.max(0, now - meta.scoredAt) / DAY_MS
-  return Math.max(0, meta.score + elapsed - Math.min(meta.pending, DIRECT_CAP))
+  return Math.max(0, meta.score + elapsed - Math.min(meta.pending, DIRECT_CAP) - Math.min(meta.warmed ?? 0, SPREAD_CAP))
 }
 
 export type Visibility = 'fresh' | 'fading' | 'hidden' | 'archived'

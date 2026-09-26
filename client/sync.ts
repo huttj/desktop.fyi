@@ -327,6 +327,17 @@ export class BoardSync {
       }
     }
 
+    // A picture without its image (an upload that died under it) is nothing: keep it off the wire.
+    for (const rec of Object.values(put)) {
+      if (rec.typeName !== 'shape' || rec.type !== 'image') continue
+      const assetId = rec.props.assetId as string | undefined
+      const has = !!assetId && (put[assetId]?.typeName === 'asset' || this.store.get(assetId)?.typeName === 'asset')
+      if (!has) {
+        delete put[rec.id]
+        if (this.store.has(rec.id)) this.store.remove([rec.id], 'remote')
+      }
+    }
+
     if (!Object.keys(put).length && !removed.length) return null
     return { put, removed }
   }
