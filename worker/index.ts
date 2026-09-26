@@ -5,7 +5,7 @@ import { BoardDurableObject, OWNER_HEADER, USER_HEADER } from './BoardDurableObj
 import { Db, HANDLE_RE, RESERVED_HANDLES, toPerson, toSummary, type UserRow } from './db'
 import { sendMagicLink } from './email'
 import { DAY_MS } from '../shared/freshness'
-import type { DesktopStats, Feed, FeedItem, Me, Person, PlacedItem, Profile } from '../shared/types'
+import type { DesktopStats, Feed, FeedItem, Me, Person, PlacedItem, Profile, Revision } from '../shared/types'
 
 export { BoardDurableObject } from './BoardDurableObject'
 
@@ -220,6 +220,20 @@ const router = AutoRouter<IRequest, Args>({
     if (target.id !== me.id && !isAdminEmail(env, me.email)) return error(403, 'Only the owner can see this')
     const stats: DesktopStats = await board(env, target.id).stats()
     return json(stats)
+  })
+
+  /** Earlier states of one item: its author or the desktop's owner may page through them. */
+  .get('/api/users/:handle/items/:id/history', requireAuth, async (request, env) => {
+    const me = (request as AuthedRequest).user
+    const target = await resolveHandle(env, request.params.handle)
+    if (!target) return error(404, 'No such desktop')
+    const id = decodeURIComponent(request.params.id)
+    const stub = board(env, target.id)
+    const author = await stub.authorOf(id)
+    if (!author) return error(404, 'No such item')
+    if (author !== me.id && target.id !== me.id && !isAdminEmail(env, me.email)) return error(403, 'Only its author or the desktop owner can see this')
+    const history: Revision[] = await stub.history(id)
+    return json(history)
   })
 
   .get('/api/users/:handle/following', async (request, env) => {

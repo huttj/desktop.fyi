@@ -99,6 +99,16 @@ export interface ApiError {
   error: string
 }
 
+/** One earlier state of an item, kept when it was moved, edited or removed. Newest first from the API. */
+export interface Revision {
+  seq: number
+  at: number
+  by: string
+  kind: 'move' | 'edit' | 'remove'
+  /** The Quickdraw record as it stood just before that change. */
+  record: unknown
+}
+
 /** Who has been looking at a desktop. Only its owner (or an admin) may see this. */
 export interface DesktopStats {
   liveNow: number

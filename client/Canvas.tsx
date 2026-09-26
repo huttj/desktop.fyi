@@ -415,7 +415,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       {editor && watching && <Viewports editor={editor} peers={peers.filter((p) => p.sessionId === watching)} people={people} meId={me?.id ?? null} />}
       {editor && <Cursors editor={editor} peers={peers} people={people} />}
       {editor && <AttributionOverlay editor={editor} people={people} metas={fresh.current.metas} meId={me?.id ?? null} />}
-      {editor && me && <SelectionActions editor={editor} me={me} owner={owner} metas={fresh.current.metas} metaVersion={metaVersion} sync={syncRef.current} />}
+      {editor && me && <SelectionActions editor={editor} me={me} owner={owner} handle={handle} people={people} theme={theme} metas={fresh.current.metas} metaVersion={metaVersion} sync={syncRef.current} />}
       <BoardHeader
         handle={handle}
         me={me}

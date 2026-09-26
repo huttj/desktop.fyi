@@ -4,7 +4,7 @@ import { approxBounds, centreOf } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
 import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, canSee, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
-import type { DesktopStats, FeedItem, ItemMeta, PlacedItem } from '../shared/types'
+import type { DesktopStats, FeedItem, ItemMeta, PlacedItem, Revision } from '../shared/types'
 
 /** Set by the worker (never trusted from the client). */
 export const USER_HEADER = 'x-dfyi-user'
@@ -42,6 +42,9 @@ const INIT_CHUNK_CHARS = 400 * 1024
 const MAX_ID_CHARS = 96
 /** Repeated events of one kind by one person inside this window count once (a drag is one move). */
 const COALESCE_MS = 10_000
+/** Earlier states of an item are kept this long, and at most this many per item. */
+const REVISION_DAYS = 30
+const REVISIONS_PER_ITEM = 60
 /** Records bigger than this are not shipped to the feed (a thumbnail is not worth the bytes). */
 const FEED_RECORD_CHARS = 48 * 1024
 
@@ -96,6 +99,15 @@ export class BoardDurableObject extends DurableObject<Env> {
         user_id TEXT
       );
       CREATE INDEX IF NOT EXISTS visits_at ON visits(at);
+      CREATE TABLE IF NOT EXISTS revisions (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        by TEXT NOT NULL,
+        at INTEGER NOT NULL,
+        data TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS revisions_item ON revisions(item_id, seq);
     `)
     const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(records)').toArray().map((c) => c.name)
     if (!columns.includes('pinned')) this.sql.exec('ALTER TABLE records ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
@@ -361,6 +373,7 @@ export class BoardDurableObject extends DurableObject<Env> {
           accepted.put[rec.id] = rec
           continue
         }
+        if (!existing.is_asset) this.keepRevision(existing, kind, userId, now)
         this.sql.exec('UPDATE records SET data = ?, edited_by = ?, edited_at = ?, cx = ?, cy = ? WHERE id = ?', JSON.stringify(rec), userId, now, cx, cy, rec.id)
         if (!existing.is_asset && this.logEvent(rec.id, kind, userId, now)) {
           this.sql.exec('UPDATE records SET pending = MIN(?, pending + ?) WHERE id = ?', DIRECT_CAP, kind === 'edit' ? BUMP.edit : BUMP.move, rec.id)
@@ -376,12 +389,47 @@ export class BoardDurableObject extends DurableObject<Env> {
           restore.push(JSON.parse(existing.data) as BoardRecord)
           continue
         }
+        if (!existing.is_asset) this.keepRevision(existing, 'remove', userId, now)
         this.sql.exec("UPDATE records SET state = 'archived', archived_at = ? WHERE id = ?", now, id)
         this.sql.exec('DELETE FROM events WHERE item_id = ?', id)
         accepted.removed.push(id)
       }
     })
     return { accepted, restore, metas, now }
+  }
+
+  /**
+   * Remembers what an item looked like just before a change, so the change can be
+   * undone later. A run of changes of one kind by one person within COALESCE_MS
+   * keeps only its first snapshot (the state before the run), so a drag or a
+   * typing burst is one step, not a hundred.
+   */
+  private keepRevision(existing: Row, kind: EventKind | 'remove', by: string, now: number) {
+    const last = this.sql
+      .exec<{ kind: string; by: string; at: number }>('SELECT kind, by, at FROM revisions WHERE item_id = ? ORDER BY seq DESC LIMIT 1', existing.id)
+      .toArray()[0]
+    if (last && last.kind === kind && last.by === by && kind !== 'remove' && now - last.at < COALESCE_MS) {
+      this.sql.exec('UPDATE revisions SET at = ? WHERE item_id = ? AND seq = (SELECT MAX(seq) FROM revisions WHERE item_id = ?)', now, existing.id, existing.id)
+      return
+    }
+    this.sql.exec('INSERT INTO revisions (item_id, kind, by, at, data) VALUES (?, ?, ?, ?, ?)', existing.id, kind, by, now, existing.data)
+    this.sql.exec(
+      'DELETE FROM revisions WHERE item_id = ? AND seq NOT IN (SELECT seq FROM revisions WHERE item_id = ? ORDER BY seq DESC LIMIT ?)',
+      existing.id, existing.id, REVISIONS_PER_ITEM
+    )
+  }
+
+  /** Earlier states of one item, newest first. */
+  async history(id: string, limit = REVISIONS_PER_ITEM): Promise<Revision[]> {
+    return this.sql
+      .exec<{ seq: number; kind: Revision['kind']; by: string; at: number; data: string }>('SELECT seq, kind, by, at, data FROM revisions WHERE item_id = ? ORDER BY seq DESC LIMIT ?', id, limit)
+      .toArray()
+      .map((r) => ({ seq: r.seq, at: r.at, by: r.by, kind: r.kind, record: JSON.parse(r.data) as unknown }))
+  }
+
+  /** Who made an item (live or archived), or null when the room has never seen it. */
+  async authorOf(id: string): Promise<string | null> {
+    return this.sql.exec<{ author: string }>('SELECT author FROM records WHERE id = ?', id).toArray()[0]?.author ?? null
   }
 
   /** Pins/unpins or freshens the items this person may touch (their own, or anything on their desktop). */
@@ -500,6 +548,7 @@ export class BoardDurableObject extends DurableObject<Env> {
       }
       this.sql.exec('DELETE FROM events')
       this.sql.exec("DELETE FROM records WHERE state = 'archived' AND archived_at < ?", now - PURGE_AFTER_DAYS * DAY_MS)
+      this.sql.exec('DELETE FROM revisions WHERE at < ? OR item_id NOT IN (SELECT id FROM records)', now - REVISION_DAYS * DAY_MS)
       this.sql.exec('DELETE FROM visits WHERE at < ?', now - 90 * DAY_MS)
       const total = this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM visits WHERE at < ?', now - 60 * DAY_MS).toArray()[0]?.n ?? 0
       if (total) this.kvSet('visitsBefore', String(Number(this.kvGet('visitsBefore') ?? 0) + total))
