@@ -720,7 +720,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       ['Nudge', 'Arrows (Shift = 8px)'], ['Context menu', 'Right-click / long press'],
     ]},
     { label: 'Dragging', rows: [
-      ['Copy instead of move', '⌥ drag'], ['Proportional resize', '⇧ drag'],
+      ['Copy instead of move', '⌥ drag'], ['Move without snapping', '⌘ / Ctrl drag'], ['Proportional resize', '⇧ drag'],
       ['Resize about the centre', '⌥ / Ctrl drag'], ['Bind arrow to exact point', '⌥ drag'],
     ]},
     { label: 'View', rows: [

@@ -1821,7 +1821,9 @@ export class Editor {
     const ss = this.session
     ss.last = p
     ss.shift = !!e.shiftKey
-    ss.noSnap = !!e.metaKey
+    // ⌘ or Ctrl held mid-drag turns snapping off (Ctrl on a Mac has to come
+    // after the press — Ctrl-click there is a right-click)
+    ss.noSnap = !!(e.metaKey || e.ctrlKey)
     if (e.altKey && !ss.copied) this._copyForDrag()
     else if (!e.altKey && ss.copied) this._uncopyForDrag()
     this._applyTranslate()
