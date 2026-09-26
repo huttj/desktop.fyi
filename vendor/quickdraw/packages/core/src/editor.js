@@ -27,6 +27,11 @@ const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', f
 // what a tool starts with before you have touched its styles: the highlighter
 // is a fat yellow marker, everything else takes the board's defaults
 const TOOL_STYLE_DEFAULTS = { highlight: { color: 'yellow', size: 'l' } }
+// [x, y, pressure] triplets: true once any point sits apart from the first
+const strokeHasLength = (pts) => {
+  for (let i = 3; i < pts.length; i += 3) if (pts[i] !== pts[0] || pts[i + 1] !== pts[1]) return true
+  return false
+}
 // the eight box handles as fractions of a box — crop mode and the rotated
 // resize frame both hang theirs here
 const BOX_HANDLES = {
@@ -1147,7 +1152,12 @@ export class Editor {
   }
   _endDraw() {
     const ss = this.session
-    if (this.store.get(ss.id)) this.store.update(ss.id, { props: { done: true } })
+    const shape = this.store.get(ss.id)
+    // a pen tap leaves a dot of ink, but a stroked band with no length paints
+    // nothing — a bare click with the highlighter leaves nothing behind
+    // (the put and remove cancel out, so there is no undo step either)
+    if (shape && shape.type === 'highlight' && !strokeHasLength(shape.props.pts)) this.store.remove([ss.id])
+    else if (shape) this.store.update(ss.id, { props: { done: true } })
     this.store.endBatch()
     this.session = null
   }
