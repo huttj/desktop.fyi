@@ -376,6 +376,14 @@ export class Editor {
   setGeoKind(kind) {
     if (GEO_IDS.includes(kind)) { this.geoKind = kind; this.emit('tool') }
   }
+  // the styles a tool would come back with: the live ones while it is the
+  // tool in hand, otherwise what it was left with (or the board's defaults).
+  // Shapes made without the tool — a drop from the dock, a paste — take
+  // their own tool's styles, not whatever the tool in hand happens to wear
+  _stylesFor(tool) {
+    if (tool === this.tool) return this.styles
+    return this._toolStyles[tool] || { ...this._baseStyles, ...(TOOL_STYLE_DEFAULTS[tool] || {}) }
+  }
   setTheme(id) {
     const t = themeOf(id)
     if (t === this.theme) return
@@ -1367,25 +1375,25 @@ export class Editor {
   }
 
   // ---- text / note ---------------------------------------------------------
-  _placeText(p) {
+  _placeText(p, st = this.styles) {
     const id = newId()
     this.store.beginBatch()
     this.store.put({
-      id, typeName: 'shape', type: 'text', x: p.x, y: p.y - FONT_SIZES[this.styles.size] * 0.66, rot: 0,
+      id, typeName: 'shape', type: 'text', x: p.x, y: p.y - FONT_SIZES[st.size] * 0.66, rot: 0,
       z: this.store.maxZ() + 1,
-      props: { text: '', color: this.styles.color, size: this.styles.size, font: this.styles.font, align: this.styles.align, autosize: true, scale: 1 },
+      props: { text: '', color: st.color, size: st.size, font: st.font, align: st.align, autosize: true, scale: 1 },
     })
     this.setTool('select')
     this.setSelection([id])
     this._startTextEdit(id, 'text', { fresh: true })
   }
-  _placeNote(p) {
+  _placeNote(p, st = this.styles) {
     const id = newId()
     this.store.beginBatch()
     this.store.put({
       id, typeName: 'shape', type: 'note', x: p.x - NOTE_W / 2, y: p.y - NOTE_W / 2, rot: 0,
       z: this.store.maxZ() + 1,
-      props: { text: '', color: this.styles.color === DEFAULT_STYLES.color || this.styles.color === 'black' ? 'yellow' : this.styles.color, size: 'm', font: this.styles.font, scale: 1 },
+      props: { text: '', color: st.color === DEFAULT_STYLES.color || st.color === 'black' ? 'yellow' : st.color, size: 'm', font: st.font, scale: 1 },
     })
     this.setTool('select')
     this.setSelection([id])
@@ -2309,11 +2317,12 @@ export class Editor {
     if (this.readonly) return null
     this._commitText()
     this.endCrop()
+    // the shape wears its own tool's styles, whichever tool is in hand
     if (kind === 'text' || kind === 'note') {
-      kind === 'text' ? this._placeText(at) : this._placeNote(at)
+      kind === 'text' ? this._placeText(at, this._stylesFor('text')) : this._placeNote(at, this._stylesFor('note'))
       return [...this.selection][0] || null
     }
-    const st = this.styles
+    const st = this._stylesFor(kind === 'arrow' || kind === 'line' ? kind : 'geo')
     const id = newId()
     const base = { id, typeName: 'shape', rot: 0, z: this.store.maxZ() + 1 }
     let shape
@@ -2739,9 +2748,10 @@ export class Editor {
     if (await this._pasteHtml(text)) return true
     const vp = this.viewportPageBounds()
     const id = newId()
+    const st = this._stylesFor('text') // pasted text is text-tool text, whatever tool is in hand
     this.store.put({
       id, typeName: 'shape', type: 'text', x: vp.x + vp.w / 2, y: vp.y + vp.h / 2, rot: 0, z: this.store.maxZ() + 1,
-      props: { text: normalizeText(text), color: this.styles.color, size: this.styles.size, font: this.styles.font, align: this.styles.align, autosize: true, scale: 1 },
+      props: { text: normalizeText(text), color: st.color, size: st.size, font: st.font, align: st.align, autosize: true, scale: 1 },
     })
     // centre it on the view now that it has a size
     const b = pageBounds(this.store.get(id))
