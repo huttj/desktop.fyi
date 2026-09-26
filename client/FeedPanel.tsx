@@ -179,7 +179,7 @@ export function FeedPanel({ me, theme, changeKey = 0, onClose }: { me: Me; theme
             <section className="FeedSection">
               <h2 className="FeedSection-title">Vanishing soon</h2>
               {vanishing.length === 0 ? (
-                <p className="Muted">Nothing is fading right now.</p>
+                <p className="Muted">Nothing goes in the next six hours.</p>
               ) : (
                 vanishing.map((g) => <Entry key={`v:${g.key}`} group={g} people={people} meId={me.id} theme={theme} vanishing />)
               )}

@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
 import { approxBounds, centreOf } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
-import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, canSee, provisionalAge } from '../shared/freshness'
+import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, canSee, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
 import type { DesktopStats, FeedItem, ItemMeta, PlacedItem, Revision } from '../shared/types'
 
@@ -630,7 +630,7 @@ export class BoardDurableObject extends DurableObject<Env> {
     for (const row of rows) {
       const meta = metaOf(row)
       const age = provisionalAge(meta, now)
-      if (age < FADE_START) continue
+      if (age < FADE_START || HIDE_AT - age > SOON) continue // fading, and within hours of hiding
       if (!canSee(meta, age, viewerId)) continue
       out.push(this.feedItem(row, meta, age))
     }

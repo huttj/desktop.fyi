@@ -11,6 +11,8 @@ export const DAY_MS = 24 * 60 * 60 * 1000
 export const FADE_START = 1
 /** Fading until this age; then hidden from everyone but its author. */
 export const HIDE_AT = 3
+/** "Vanishing soon" in the feed: this much left before hiding, in days (6 hours). */
+export const SOON = 6 / 24
 /** Archived (gone from the board) at this age. */
 export const ARCHIVE_AT = 7
 /** Archived items are kept this long for a data request, then deleted. */
