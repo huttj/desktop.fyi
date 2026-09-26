@@ -46,6 +46,8 @@ const COALESCE_MS = 10_000
 /** Earlier states of an item are kept this long, and at most this many per item. */
 const REVISION_DAYS = 30
 const REVISIONS_PER_ITEM = 60
+/** Edits closer together than this are one sitting: history keeps the state before the sitting, not every keystroke. */
+const REVISION_GAP_MS = 5 * 60_000
 /** Records bigger than this are not shipped to the feed (a thumbnail is not worth the bytes). */
 const FEED_RECORD_CHARS = 48 * 1024
 
@@ -110,6 +112,8 @@ export class BoardDurableObject extends DurableObject<Env> {
       );
       CREATE INDEX IF NOT EXISTS revisions_item ON revisions(item_id, seq);
     `)
+    const revCols = this.sql.exec<{ name: string }>('PRAGMA table_info(revisions)').toArray().map((c) => c.name)
+    if (!revCols.includes('touched')) this.sql.exec('ALTER TABLE revisions ADD COLUMN touched INTEGER NOT NULL DEFAULT 0')
     const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(records)').toArray().map((c) => c.name)
     if (!columns.includes('pinned')) this.sql.exec('ALTER TABLE records ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
     if (!columns.includes('warmed')) this.sql.exec('ALTER TABLE records ADD COLUMN warmed REAL NOT NULL DEFAULT 0')
@@ -384,7 +388,7 @@ export class BoardDurableObject extends DurableObject<Env> {
           accepted.put[rec.id] = rec
           continue
         }
-        if (!existing.is_asset) this.keepRevision(existing, kind, userId, now)
+        if (!existing.is_asset && kind === 'edit') this.keepRevision(existing, userId, now)
         this.sql.exec('UPDATE records SET data = ?, edited_by = ?, edited_at = ?, cx = ?, cy = ? WHERE id = ?', JSON.stringify(rec), userId, now, cx, cy, rec.id)
         if (!existing.is_asset && this.logEvent(rec.id, kind, userId, now)) {
           this.sql.exec('UPDATE records SET pending = MIN(?, pending + ?) WHERE id = ?', DIRECT_CAP, kind === 'edit' ? BUMP.edit : BUMP.move, rec.id)
@@ -400,7 +404,6 @@ export class BoardDurableObject extends DurableObject<Env> {
           restore.push(JSON.parse(existing.data) as BoardRecord)
           continue
         }
-        if (!existing.is_asset) this.keepRevision(existing, 'remove', userId, now)
         this.sql.exec("UPDATE records SET state = 'archived', archived_at = ? WHERE id = ?", now, id)
         this.sql.exec('DELETE FROM events WHERE item_id = ?', id)
         accepted.removed.push(id)
@@ -436,20 +439,21 @@ export class BoardDurableObject extends DurableObject<Env> {
   }
 
   /**
-   * Remembers what an item looked like just before a change, so the change can be
-   * undone later. A run of changes of one kind by one person within COALESCE_MS
-   * keeps only its first snapshot (the state before the run), so a drag or a
-   * typing burst is one step, not a hundred.
+   * Remembers what an item looked like just before an edit, so it can be
+   * brought back. Edits by one person with no gap longer than REVISION_GAP_MS
+   * between them are one sitting: only the state before the sitting is kept,
+   * so history reads as a few versions, not every keystroke. Moves are not
+   * history: they change where a thing is, not what it says.
    */
-  private keepRevision(existing: Row, kind: EventKind | 'remove', by: string, now: number) {
+  private keepRevision(existing: Row, by: string, now: number) {
     const last = this.sql
-      .exec<{ kind: string; by: string; at: number }>('SELECT kind, by, at FROM revisions WHERE item_id = ? ORDER BY seq DESC LIMIT 1', existing.id)
+      .exec<{ by: string; touched: number }>('SELECT by, touched FROM revisions WHERE item_id = ? ORDER BY seq DESC LIMIT 1', existing.id)
       .toArray()[0]
-    if (last && last.kind === kind && last.by === by && kind !== 'remove' && now - last.at < COALESCE_MS) {
-      this.sql.exec('UPDATE revisions SET at = ? WHERE item_id = ? AND seq = (SELECT MAX(seq) FROM revisions WHERE item_id = ?)', now, existing.id, existing.id)
+    if (last && last.by === by && now - last.touched < REVISION_GAP_MS) {
+      this.sql.exec('UPDATE revisions SET touched = ? WHERE item_id = ? AND seq = (SELECT MAX(seq) FROM revisions WHERE item_id = ?)', now, existing.id, existing.id)
       return
     }
-    this.sql.exec('INSERT INTO revisions (item_id, kind, by, at, data) VALUES (?, ?, ?, ?, ?)', existing.id, kind, by, now, existing.data)
+    this.sql.exec('INSERT INTO revisions (item_id, kind, by, at, touched, data) VALUES (?, ?, ?, ?, ?, ?)', existing.id, 'edit', by, now, now, existing.data)
     this.sql.exec(
       'DELETE FROM revisions WHERE item_id = ? AND seq NOT IN (SELECT seq FROM revisions WHERE item_id = ? ORDER BY seq DESC LIMIT ?)',
       existing.id, existing.id, REVISIONS_PER_ITEM
@@ -459,7 +463,7 @@ export class BoardDurableObject extends DurableObject<Env> {
   /** Earlier states of one item, newest first. */
   async history(id: string, limit = REVISIONS_PER_ITEM): Promise<Revision[]> {
     return this.sql
-      .exec<{ seq: number; kind: Revision['kind']; by: string; at: number; data: string }>('SELECT seq, kind, by, at, data FROM revisions WHERE item_id = ? ORDER BY seq DESC LIMIT ?', id, limit)
+      .exec<{ seq: number; kind: Revision['kind']; by: string; at: number; data: string }>("SELECT seq, kind, by, at, data FROM revisions WHERE item_id = ? AND kind = 'edit' ORDER BY seq DESC LIMIT ?", id, limit)
       .toArray()
       .map((r) => ({ seq: r.seq, at: r.at, by: r.by, kind: r.kind, record: JSON.parse(r.data) as unknown }))
   }
@@ -601,7 +605,7 @@ export class BoardDurableObject extends DurableObject<Env> {
       }
       this.sql.exec('DELETE FROM events')
       this.sql.exec("DELETE FROM records WHERE state = 'archived' AND archived_at < ?", now - PURGE_AFTER_DAYS * DAY_MS)
-      this.sql.exec('DELETE FROM revisions WHERE at < ? OR item_id NOT IN (SELECT id FROM records)', now - REVISION_DAYS * DAY_MS)
+      this.sql.exec("DELETE FROM revisions WHERE at < ? OR kind != 'edit' OR item_id NOT IN (SELECT id FROM records)", now - REVISION_DAYS * DAY_MS)
       this.sql.exec('DELETE FROM visits WHERE at < ?', now - 90 * DAY_MS)
       const total = this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM visits WHERE at < ?', now - 60 * DAY_MS).toArray()[0]?.n ?? 0
       if (total) this.kvSet('visitsBefore', String(Number(this.kvGet('visitsBefore') ?? 0) + total))

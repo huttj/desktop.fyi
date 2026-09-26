@@ -101,13 +101,13 @@ export interface ApiError {
   error: string
 }
 
-/** One earlier state of an item, kept when it was moved, edited or removed. Newest first from the API. */
+/** One earlier state of an item, kept before each sitting of edits. Newest first from the API. */
 export interface Revision {
   seq: number
   at: number
   by: string
-  kind: 'move' | 'edit' | 'remove'
-  /** The Quickdraw record as it stood just before that change. */
+  kind: 'edit'
+  /** The Quickdraw record as it stood just before that sitting of edits. */
   record: unknown
 }
 

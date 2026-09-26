@@ -120,8 +120,9 @@ export function SelectionActions({
 
 /**
  * Earlier states of one item, newest first, each with a little picture of how it
- * looked. Choosing one puts it back as an ordinary edit, so the state it replaces
- * joins the list and you can page back and forth.
+ * looked: one per sitting of edits, not per keystroke. Choosing one puts it back
+ * as an ordinary edit, so the state it replaces joins the list and you can page
+ * back and forth.
  */
 function History({ editor, id, handle, me, people, theme, onClose }: { editor: Editor; id: string; handle: string; me: Me; people: People; theme: 'light' | 'dark'; onClose: () => void }) {
   const [revisions, setRevisions] = useState<Revision[] | null>(null)
@@ -179,7 +180,7 @@ function History({ editor, id, handle, me, people, theme, onClose }: { editor: E
         <span className="Muted">what this looked like before</span>
       </div>
       {error && <p className="Muted History-empty">{error}</p>}
-      {revisions && !revisions.length && !error && <p className="Muted History-empty">No earlier versions yet. Each edit or move from now on keeps one.</p>}
+      {revisions && !revisions.length && !error && <p className="Muted History-empty">No earlier versions yet. Each sitting of edits from now on keeps one.</p>}
       {revisions && revisions.length > 0 && (
         <div className="History-list">
           {revisions.map((rev) => (
@@ -187,7 +188,7 @@ function History({ editor, id, handle, me, people, theme, onClose }: { editor: E
               <Thumb editor={editor} record={rev.record as ShapeRecord} theme={theme} />
               <span className="History-text">
                 <span className="History-what">
-                  {rev.kind === 'move' ? 'Before a move' : rev.kind === 'remove' ? 'Before it was removed' : 'Before an edit'}
+                  Before an edit
                 </span>
                 <span className="Muted">
                   {relativeTime(rev.at)}
