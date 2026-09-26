@@ -82,6 +82,15 @@ export function daysUntilHidden(age: number): number {
   return HIDE_AT - age
 }
 
+/** A span of days in whole days and hours: "2d", "5h", "1d 5h"; never less than an hour. */
+export function describeSpan(days: number): string {
+  const hours = Math.max(1, Math.round(days * 24))
+  const d = Math.floor(hours / 24)
+  const h = hours % 24
+  if (!d) return `${h}h`
+  return h ? `${d}d ${h}h` : `${d}d`
+}
+
 export function describeAge(age: number, pinned = false): string {
   if (pinned) return 'kept'
   const v = visibilityAt(age)
@@ -89,12 +98,11 @@ export function describeAge(age: number, pinned = false): string {
   if (v === 'fading') {
     const left = HIDE_AT - age
     if (left < 1 / 24) return 'about to vanish'
-    if (left < 1) return `vanishes in ${Math.max(1, Math.round(left * 24))}h`
-    return `vanishes in ${Math.round(left * 10) / 10}d`
+    return `vanishes in ${describeSpan(left)}`
   }
   if (v === 'hidden') {
     const left = ARCHIVE_AT - age
-    return left < 1 ? 'hidden, gone within a day' : `hidden, gone in ${Math.round(left)}d`
+    return left < 1 / 24 ? 'hidden, about to go' : `hidden, gone in ${describeSpan(left)}`
   }
   return 'gone'
 }

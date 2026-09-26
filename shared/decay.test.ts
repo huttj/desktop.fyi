@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { runDecay, type DecayItem } from './decay'
-import { ARCHIVE_AT, BUMP, DAY_MS, HIDE_AT, PROXIMITY_R0, alphaAt, provisionalAge, visibilityAt } from './freshness'
+import { ARCHIVE_AT, BUMP, DAY_MS, HIDE_AT, PROXIMITY_R0, alphaAt, describeSpan, provisionalAge, visibilityAt } from './freshness'
 
 const T0 = Date.UTC(2026, 8, 1)
 const item = (id: string, over: Partial<DecayItem> = {}): DecayItem => ({
@@ -108,5 +108,15 @@ describe('freshness', () => {
     expect(alphaAt(0.5)).toBe(1)
     expect(alphaAt(2)).toBeLessThan(1)
     expect(alphaAt(2)).toBeGreaterThan(alphaAt(2.9))
+  })
+})
+
+describe('describeSpan', () => {
+  it('speaks in whole days and hours', () => {
+    expect(describeSpan(2)).toBe('2d')
+    expect(describeSpan(1.5)).toBe('1d 12h')
+    expect(describeSpan(0.2)).toBe('5h')
+    expect(describeSpan(0.001)).toBe('1h')
+    expect(describeSpan(1.99)).toBe('2d')
   })
 })
