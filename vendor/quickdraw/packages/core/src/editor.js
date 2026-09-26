@@ -80,6 +80,8 @@ const rectGap = (a, b) => {
 export const ALIGN_MODES = ['left', 'center', 'right', 'top', 'middle', 'bottom']
 
 export const TOOLS = ['select', 'hand', 'draw', 'highlight', 'eraser', 'laser', 'arrow', 'line', 'geo', 'text', 'note']
+// pointer gestures whose edits are bracketed into one undo step
+const BATCHED_SESSIONS = new Set(['drawing', 'lineish', 'geo-create', 'translating', 'resizing', 'rotating', 'handle'])
 
 // local position of the bend handle: the curve's midpoint (chord midpoint
 // when straight — sampleLinePts collapses to the two endpoints at bend 0)
@@ -946,6 +948,10 @@ export class Editor {
     const p = this.screenToPage(s.x, s.y)
     // a press that travels is a drag, not a long press
     if (this._pressTimer && ss.pressAt && Math.hypot(s.x - ss.pressAt.x, s.y - ss.pressAt.y) > 6) this._clearPressTimer()
+    // a gesture is one undo step. Should something close its batch part way
+    // (a document reload on reconnect, say), the rest of the gesture still
+    // lands together instead of one step per pointer move
+    if (BATCHED_SESSIONS.has(ss.type)) this.store.beginBatch()
 
     switch (ss.type) {
       case 'pinch': {
@@ -2539,7 +2545,14 @@ export class Editor {
     }
     // ⌥ pressed mid-drag (before the pointer moves again) still turns it into a copy
     if (k === 'alt' && this.session?.type === 'translating') { this._copyForDrag(); return }
-    if (meta && k === 'z') { e.preventDefault(); e.shiftKey ? this.store.redo() : this.store.undo(); return }
+    if (meta && k === 'z') {
+      e.preventDefault()
+      // not while the button is down: undoing would close the gesture's
+      // batch and scatter the rest of it into a step per pointer move
+      if (this.session && BATCHED_SESSIONS.has(this.session.type)) return
+      e.shiftKey ? this.store.redo() : this.store.undo()
+      return
+    }
     if (meta && k === 'a') { e.preventDefault(); this.selectAll(); return }
     if (meta && k === 'd') { e.preventDefault(); this.duplicateSelection(); return }
     if (meta && k === 'g') { e.preventDefault(); e.shiftKey ? this.ungroupSelection() : this.groupSelection(); return }
