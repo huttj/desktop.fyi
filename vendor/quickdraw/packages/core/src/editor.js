@@ -4,10 +4,10 @@
 // Dependency-free ESM: runs in any modern browser as-is, no build step.
 
 import { Store, newId } from './store.js'
-import { themeOf, SIZES, FONT_SIZES, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR } from './palette.js'
+import { themeOf, SIZES, FONT_SIZES, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR, FADE_TONE, fadedTheme } from './palette.js'
 import {
   lineHeads, typeForHeads,
-  localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits,
+  localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits, tintedImage,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, imageFrame,
   mapMarks, textLinkAt, textHitAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark,
 } from './shapes.js'
@@ -69,7 +69,7 @@ const rotateCursor = (deg) => {
 }
 const LONG_PRESS = 500 // ms of a still touch before the context menu opens
 const SNAP_PX = 6 // screen pixels within which a moving edge settles onto another
-const FADE_TONE = 'hsl(36, 22%, 50%)' // the warm grey a fading shape's colour drains toward (see shapeFade)
+const GAP_NEAREST = 40 // boxes that offer their spacing to a moving box (the nearest ones)
 // the empty space between two boxes (0 when they touch or overlap)
 const rectGap = (a, b) => {
   const dx = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w))
@@ -1945,9 +1945,15 @@ export class Editor {
   // Each candidate places the box's leading or trailing edge, carries the
   // two equal gaps to draw (each in its own orientation), and scores by how
   // near the pair it copies is, so a spacing next door beats one far off.
-  // `boxes` is what is on screen, excluding the box.
+  // `boxes` is what is on screen, excluding the box. Pairing is cubic in
+  // the boxes considered, so only the few dozen nearest the box take part:
+  // a spacing worth copying is one close by, and a crowded screen would
+  // otherwise cost seconds per pointer move.
   _gapCandidates(box, boxes, { between = false } = {}) {
     const out = { left: [], right: [], top: [], bottom: [] }
+    if (boxes.length > GAP_NEAREST) {
+      boxes = boxes.map((b) => [rectGap(box, b), b]).sort((p, q) => p[0] - q[0]).slice(0, GAP_NEAREST).map((e) => e[1])
+    }
     const axes = {
       x: { lead: 'left', trail: 'right', pos: (b) => b.x, size: (b) => b.w, cpos: (b) => b.y, csize: (b) => b.h },
       y: { lead: 'top', trail: 'bottom', pos: (b) => b.y, size: (b) => b.h, cpos: (b) => b.x, csize: (b) => b.w },
@@ -2998,51 +3004,21 @@ export class Editor {
         onAssetLoad: () => this.requestRender(),
       }
       if (alpha < 1) { ctx.save(); ctx.globalAlpha *= alpha }
-      if (fade < 1) this._drawFaded(ctx, s, opts, fade, cam, dpr, vis)
+      if (fade < 1) this._drawFaded(ctx, s, opts, fade)
       else drawShape(ctx, s, opts)
       if (alpha < 1) ctx.restore()
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0)
   }
 
-  // A fading shape: drawn on a scratch canvas, toned toward a warm grey by
-  // `1 - fade` (the 'color' blend keeps its light and dark, swaps its hue and
-  // saturation for the tone's), masked back to its own pixels, and laid on
-  // the board. The scratch covers only the shape's on-screen box.
-  _drawFaded(ctx, s, opts, fade, cam, dpr, vis) {
-    const pb = boundsExpand(pageBounds(s), 24 / cam.z + 8)
-    // the part of the shape that is on screen, in device pixels
-    const x0 = Math.max(pb.x, vis.x), y0 = Math.max(pb.y, vis.y)
-    const x1 = Math.min(pb.x + pb.w, vis.x + vis.w), y1 = Math.min(pb.y + pb.h, vis.y + vis.h)
-    if (x1 <= x0 || y1 <= y0) return
-    const sw = Math.ceil((x1 - x0) * cam.z * dpr), sh = Math.ceil((y1 - y0) * cam.z * dpr)
-    if (sw > 8192 || sh > 8192) return drawShape(ctx, s, opts)
-    if (!this._fadeScratch) this._fadeScratch = [document.createElement('canvas'), document.createElement('canvas')]
-    const [a, b] = this._fadeScratch
-    for (const c of [a, b]) { if (c.width !== sw) c.width = sw; if (c.height !== sh) c.height = sh }
-    const actx = a.getContext('2d'), bctx = b.getContext('2d')
-    if (!actx || !bctx) return drawShape(ctx, s, opts)
-    actx.setTransform(1, 0, 0, 1, 0, 0)
-    actx.clearRect(0, 0, sw, sh)
-    actx.setTransform(cam.z * dpr, 0, 0, cam.z * dpr, -x0 * cam.z * dpr, -y0 * cam.z * dpr)
-    drawShape(actx, s, opts)
-    // its own pixels, for the mask
-    bctx.setTransform(1, 0, 0, 1, 0, 0)
-    bctx.clearRect(0, 0, sw, sh)
-    bctx.drawImage(a, 0, 0)
-    actx.setTransform(1, 0, 0, 1, 0, 0)
-    actx.globalCompositeOperation = 'color'
-    actx.globalAlpha = 1 - fade
-    actx.fillStyle = FADE_TONE
-    actx.fillRect(0, 0, sw, sh)
-    actx.globalAlpha = 1
-    actx.globalCompositeOperation = 'destination-in'
-    actx.drawImage(b, 0, 0)
-    actx.globalCompositeOperation = 'source-over'
-    ctx.save()
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.drawImage(a, Math.round((x0 + cam.x) * cam.z * dpr), Math.round((y0 + cam.y) * cam.z * dpr))
-    ctx.restore()
+  // A fading shape drains of colour toward a warm grey by `1 - fade`. Drawn
+  // shapes take a palette already blended that way (see fadedTheme); a
+  // picture draws from a toned copy of itself (see tintedImage). Either way
+  // it costs no more than a fresh one.
+  _drawFaded(ctx, s, opts, fade) {
+    const theme = fadedTheme(opts.theme, fade)
+    const imageTint = s.type === 'image' ? (img) => tintedImage(img, FADE_TONE, 1 - fade) : undefined
+    drawShape(ctx, s, { ...opts, theme, imageTint })
   }
 
   // The lattice, drawn in device pixels so rules stay hairline-crisp at any

@@ -126,3 +126,49 @@ export const HIGHLIGHT_SCALE = 4.5 // band width = SIZES[size] * this
 // the share of the band drawn again without a blend, so it still shows
 // over pixels the blend can't touch (black under multiply, white under lighten)
 export const HIGHLIGHT_PLAIN = 0.35
+
+// ---- fading ----------------------------------------------------------------
+// A fading shape drains of colour toward a warm grey: each palette colour is
+// blended toward FADE_TONE the way the 'color' blend mode would do it on
+// pixels (the colour keeps its own light and dark, takes the tone's hue and
+// saturation), by 1 - fade. Themes are derived once per fade step and kept,
+// so a board full of fading shapes costs the same to draw as a fresh one.
+export const FADE_TONE = 'hsl(36, 22%, 50%)'
+const FADE_STEPS = 24
+const TONE_RGB = [0.61, 0.522, 0.39] // FADE_TONE as rgb fractions
+const hexToRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+const rgbToHex = (c) => '#' + c.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('')
+const lum = ([r, g, b]) => 0.3 * r + 0.59 * g + 0.11 * b
+// SetLum + ClipColor from the compositing spec's non-separable blend modes
+const setLum = (c, l) => {
+  const d = l - lum(c)
+  let out = c.map((v) => v + d)
+  const L = lum(out), n = Math.min(...out), x = Math.max(...out)
+  if (n < 0) out = out.map((v) => L + ((v - L) * L) / (L - n))
+  if (x > 1) out = out.map((v) => L + ((v - L) * (1 - L)) / (x - L))
+  return out
+}
+const fadeHex = (hex, fade) => {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return hex
+  const c = hexToRgb(hex)
+  const b = setLum(TONE_RGB, lum(c))
+  return rgbToHex(c.map((v, i) => v * fade + b[i] * (1 - fade)))
+}
+const fadedThemes = new WeakMap() // theme -> Map(step -> theme)
+export function fadedTheme(theme, fade) {
+  const step = Math.round(Math.max(0, Math.min(1, fade)) * FADE_STEPS)
+  if (step >= FADE_STEPS) return theme
+  let byStep = fadedThemes.get(theme)
+  if (!byStep) fadedThemes.set(theme, (byStep = new Map()))
+  let t = byStep.get(step)
+  if (!t) {
+    const f = step / FADE_STEPS
+    const colors = {}
+    for (const [id, c] of Object.entries(theme.colors)) {
+      colors[id] = Object.fromEntries(Object.entries(c).map(([k, v]) => [k, fadeHex(v, f)]))
+    }
+    t = { ...theme, colors, noteText: fadeHex(theme.noteText, f) }
+    byStep.set(step, t)
+  }
+  return t
+}

@@ -457,6 +457,48 @@ export function imageFrame(shape) {
 // ---- image assets ----------------------------------------------------------
 
 const imgCache = new Map() // assetId -> { img, ready }
+// A picture toned toward `tone` by `amount` (0 leaves it alone): its own
+// pixels only, via the 'color' blend masked back through its alpha. Copies
+// are kept per picture and fade step, a bounded number at a time, so a
+// board of fading photos draws them as cheaply as fresh ones.
+const TINT_STEPS = 24
+const TINT_KEEP = 48
+const TINT_MAX = 1024 // long side of a toned copy: a fading picture need not be sharper
+const tintCache = new WeakMap() // img -> Map(step -> canvas)
+let tintCount = 0
+const tintOrder = [] // [img, step] oldest first
+export function tintedImage(img, tone, amount) {
+  const step = Math.round(Math.max(0, Math.min(1, amount)) * TINT_STEPS)
+  if (step <= 0) return img
+  let bySteps = tintCache.get(img)
+  if (!bySteps) tintCache.set(img, (bySteps = new Map()))
+  let c = bySteps.get(step)
+  if (c) return c
+  const sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height
+  if (!sw || !sh) return img
+  const k = Math.min(1, TINT_MAX / Math.max(sw, sh))
+  c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(Math.max(1, Math.round(sw * k)), Math.max(1, Math.round(sh * k))) : document.createElement('canvas')
+  if (!(c instanceof OffscreenCanvas)) { c.width = Math.max(1, Math.round(sw * k)); c.height = Math.max(1, Math.round(sh * k)) }
+  const ctx = c.getContext('2d')
+  if (!ctx) return img
+  ctx.drawImage(img, 0, 0, c.width, c.height)
+  ctx.globalCompositeOperation = 'color'
+  ctx.globalAlpha = step / TINT_STEPS
+  ctx.fillStyle = tone
+  ctx.fillRect(0, 0, c.width, c.height)
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'destination-in'
+  ctx.drawImage(img, 0, 0, c.width, c.height)
+  ctx.globalCompositeOperation = 'source-over'
+  bySteps.set(step, c)
+  tintOrder.push([img, step])
+  if (++tintCount > TINT_KEEP) {
+    const [oldImg, oldStep] = tintOrder.shift()
+    tintCache.get(oldImg)?.delete(oldStep)
+    tintCount--
+  }
+  return c
+}
 export function assetImage(store, assetId, onReady) {
   let e = imgCache.get(assetId)
   if (e) return e.ready ? e.img : null
@@ -786,7 +828,9 @@ export function drawShape(ctx, shape, opts) {
       break
     }
     case 'image': {
-      const img = assetImage(opts.store, p.assetId, opts.onAssetLoad)
+      let img = assetImage(opts.store, p.assetId, opts.onAssetLoad)
+      // a fading picture draws from a toned copy of itself (see tintedImage)
+      if (img && opts.imageTint) img = opts.imageTint(img) || img
       if (img) {
         if (opts.cropPreview) {
           // crop mode: the whole picture shows through faintly around the window

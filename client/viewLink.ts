@@ -63,7 +63,12 @@ export function itemsLink(handle: string, ids: string[]) {
   return `/@${handle}#i=${ids.map(encodeURIComponent).join(',')}`
 }
 
-/** Mirrors the camera into the URL hash (throttled) so the address bar is always a deep link. */
+/**
+ * Mirrors the camera into the URL hash so the address bar is a deep link. Written once
+ * the camera has settled: browsers list every replaceState URL in their history, so a
+ * pan that wrote as it went left hundreds of entries behind.
+ */
+const SETTLE_MS = 1500
 export function mirrorViewToHash(editor: Editor) {
   let timer = 0
   const write = () => {
@@ -72,6 +77,7 @@ export function mirrorViewToHash(editor: Editor) {
     if (window.location.hash !== hash) window.history.replaceState(null, '', hash)
   }
   return editor.on('camera', () => {
-    if (!timer) timer = window.setTimeout(write, 250)
+    clearTimeout(timer)
+    timer = window.setTimeout(write, SETTLE_MS)
   })
 }
