@@ -40,6 +40,7 @@ export function Login() {
         ) : (
           <form onSubmit={submit} className="Form">
             <p>Sign in, or make a desktop, with just your email. No password.</p>
+            <p className="Muted">Everything you put on a desktop is public.</p>
             <input
               className="Input"
               type="email"

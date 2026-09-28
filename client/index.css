@@ -1649,6 +1649,40 @@ img.Avatar {
   background: #9a958b;
 }
 
+.Notice--public {
+  pointer-events: all;
+  white-space: normal;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 8px 8px 8px 14px;
+  border-radius: 14px;
+  line-height: 1.35;
+}
+
+.Notice-ok {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-line);
+  background: transparent;
+  color: var(--panel-fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.Notice-ok:hover {
+  background: var(--panel-hover);
+}
+
+/* A passing notice steps over the public reminder while both are up. */
+.Notice--raised {
+  bottom: 152px;
+}
+
 .Notice--button {
   font: inherit;
   font-size: 13px;
@@ -1664,6 +1698,16 @@ img.Avatar {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.Warn {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg);
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
 }
 
 .Profile-foot {

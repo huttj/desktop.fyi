@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Me } from '../shared/types'
 import { api, ApiError } from './api'
 import { Canvas } from './Canvas'
@@ -61,7 +61,17 @@ export function App() {
     window.location.assign('/')
   }, [])
 
-  const updateMe = useCallback((me: Me) => setAuth({ status: 'signed-in', me }), [])
+  const meRef = useRef<Me | null>(null)
+  meRef.current = auth.status === 'signed-in' ? auth.me : null
+
+  const updateMe = useCallback((me: Me) => {
+    // A renamed desktop: if I am standing on it, the address bar follows in place.
+    const was = meRef.current?.handle
+    if (was && me.handle && me.handle !== was && decodeURIComponent(window.location.pathname).toLowerCase() === `/@${was}`) {
+      navigate(`/@${me.handle}${window.location.hash}`, { replace: true })
+    }
+    setAuth({ status: 'signed-in', me })
+  }, [])
 
   const boardHandle = HANDLE_PATH.exec(path)?.[1]?.toLowerCase() ?? null
 
@@ -77,7 +87,8 @@ export function App() {
   // A first sign-in picks a name and a handle before anything else.
   if (!me.name || !me.handle) return <NamePrompt me={me} onDone={updateMe} />
 
-  if (boardHandle) return <Canvas key={`${me.id}:${boardHandle}`} handle={boardHandle} me={me} onMeChange={updateMe} onSignOut={signOut} />
+  // My own desktop keeps one key whatever it is called, so renaming it does not tear the board down.
+  if (boardHandle) return <Canvas key={boardHandle === me.handle ? `${me.id}:mine` : `${me.id}:${boardHandle}`} handle={boardHandle} me={me} onMeChange={updateMe} onSignOut={signOut} />
   // Feed, profile and people live on your desktop as panels and popups; anything else is your desktop too.
   const open = path === '/feed' ? '#feed' : path === '/profile' || path === '/settings' ? '#profile' : path === '/admin' ? '#people' : ''
   window.location.replace(`/@${me.handle}${open}`)

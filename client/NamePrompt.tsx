@@ -1,9 +1,8 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react'
 import type { Me } from '../shared/types'
+import { HANDLE_RE } from '../shared/handle'
 import { api, ApiError } from './api'
 import { prepareAvatar } from './avatarImage'
-
-const HANDLE_RE = /^[a-z0-9][a-z0-9_]{1,19}$/
 
 function suggestHandle(me: Me) {
   const base = (me.email.split('@')[0] ?? '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20)
@@ -60,6 +59,7 @@ export function NamePrompt({ me, onDone }: { me: Me; onDone: (me: Me) => void })
         <h1 className="Wordmark">desktop.fyi</h1>
         <form onSubmit={submit} className="Form">
           <p>Welcome. What should we call you, and where should your desktop live?</p>
+          <p className="Muted">Remember: everything you put on a desktop is public. Anyone with the address can see it.</p>
           <input
             className="Input"
             type="text"

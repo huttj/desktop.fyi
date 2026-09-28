@@ -2,8 +2,7 @@ import type { Person, UserSummary } from '../shared/types'
 
 /** D1 holds what has to be queried across people; boards live in their own Durable Objects. */
 
-export const HANDLE_RE = /^[a-z0-9][a-z0-9_]{1,19}$/
-export const RESERVED_HANDLES = new Set(['feed', 'login', 'admin', 'api', 'me', 'settings', 'about', 'help', 'new', 'export', 'assets', 'uploads'])
+export { HANDLE_RE, RESERVED_HANDLES } from '../shared/handle'
 
 export interface UserRow {
   id: string

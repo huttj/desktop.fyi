@@ -135,8 +135,8 @@ const router = AutoRouter<IRequest, Args>({
       patch.bio = bio || null
     }
     if (body.handle !== undefined) {
-      // A handle is chosen once: it is the desktop's address.
-      if (user.handle && body.handle.trim().toLowerCase() !== user.handle) return error(400, 'Handles cannot be changed')
+      // The handle is the desktop's address. It can change, but the old address simply
+      // stops resolving (and is free for anyone to take): the client says so before saving.
       const handle = body.handle.trim().toLowerCase()
       if (!HANDLE_RE.test(handle)) return error(400, 'Handles are 2 to 20 letters, digits or underscores')
       if (RESERVED_HANDLES.has(handle)) return error(400, 'That handle is reserved')

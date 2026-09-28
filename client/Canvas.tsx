@@ -80,6 +80,12 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
     })
   }, [store])
   const [notice, setNotice] = useState<string | null>(null)
+  // Said once per account per browser, on the first desktop you open signed in.
+  const [publicAck, setPublicAckState] = useState(() => !me || readPref(`dfyi:public-ack:${me.id}`, ['1', '0'], '0') === '1')
+  const ackPublic = useCallback(() => {
+    setPublicAckState(true)
+    if (me) writePref(`dfyi:public-ack:${me.id}`, '1')
+  }, [me])
   const [feedOpen, setFeedOpenState] = useState(() => !!me && (window.location.hash === '#feed' || readPref('dfyi:feed', ['1', '0'], '0') === '1'))
   const setFeedOpen = useCallback((open: boolean) => {
     setFeedOpenState(open)
@@ -462,7 +468,15 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
         </button>
       )}
       {feedOpen && me && <FeedPanel me={me} theme={theme} changeKey={boardChange} onClose={() => setFeedOpen(false)} />}
-      {notice && <div className="Notice">{notice}</div>}
+      {!publicAck && me && (
+        <div className="Notice Notice--public" role="status" onPointerDown={(e) => e.stopPropagation()}>
+          <span>Remember: everything you put here is public. Anyone with the address can see it.</span>
+          <button type="button" className="Notice-ok" onClick={ackPublic}>
+            Got it
+          </button>
+        </div>
+      )}
+      {notice && <div className={`Notice${!publicAck && me ? ' Notice--raised' : ''}`}>{notice}</div>}
     </div>
   )
 }

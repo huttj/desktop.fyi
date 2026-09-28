@@ -4,13 +4,15 @@
  */
 const EVENT = 'dfyi:navigate'
 
-export function navigate(path: string) {
+/** `replace` swaps the current entry instead of adding one (a desktop that was renamed under you). */
+export function navigate(path: string, opts?: { replace?: boolean }) {
   const url = new URL(path, window.location.href)
   if (url.pathname === window.location.pathname) {
     window.location.hash = url.hash
     return
   }
-  window.history.pushState(null, '', url.pathname + url.hash)
+  if (opts?.replace) window.history.replaceState(null, '', url.pathname + url.hash)
+  else window.history.pushState(null, '', url.pathname + url.hash)
   window.dispatchEvent(new Event(EVENT))
 }
 
