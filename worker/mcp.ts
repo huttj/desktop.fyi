@@ -1,5 +1,6 @@
 import { COLOR_IDS, DASH_IDS, FILL_IDS, GEO_IDS, type BoardRecord, type ShapeRecord } from '@quickdrawjs/core'
 import type { IRequest } from 'itty-router'
+import { approxBounds, gapBetween, type Box } from '../shared/bounds'
 import { HANDLE_RE } from '../shared/handle'
 import type { WireDiff } from '../shared/protocol'
 import type { FeedItem } from '../shared/types'
@@ -33,7 +34,7 @@ const TOOLS = [
   {
     name: 'my_desktop',
     description:
-      'Everything on this person\'s own desktop that they can see, their hidden things included: each item\'s Quickdraw record and its bookkeeping (who, when, age in days, pinned). Start here before moving or organizing anything.',
+      'Everything on this person\'s own desktop that they can see, their hidden things included: each item\'s Quickdraw record, its bounds { x, y, w, h } on the desktop, and its bookkeeping (who, when, age in days, pinned), plus the extent of it all. Start here before adding, moving or organizing anything.',
     inputSchema: { type: 'object', properties: { records: { type: 'boolean', description: 'Include each item\'s record (default true)' } } },
   },
   {
@@ -51,7 +52,7 @@ const TOOLS = [
   {
     name: 'put_items',
     description:
-      'Add whole records to this person\'s own desktop, or replace ones they made (a record is whole and last-writer-wins). Ids are minted when missing. For moving or tweaking existing things prefer update_items. Returns what landed and what was refused (someone else\'s, or a picture with no image).',
+      'Add whole records to this person\'s own desktop, or replace ones they made (a record is whole and last-writer-wins). Ids are minted when missing. For moving or tweaking existing things prefer update_items. Returns what landed with its bounds and anything it now overlaps, and what was refused (someone else\'s, or a picture with no image). Use find_space first so nothing lands on top of something.',
     inputSchema: { type: 'object', properties: { records: { type: 'array', items: RECORD } }, required: ['records'] },
   },
   {
@@ -117,7 +118,29 @@ const TOOLS = [
     description: 'Change this person\'s name or bio.',
     inputSchema: { type: 'object', properties: { name: { type: 'string', maxLength: 40 }, bio: { type: 'string', maxLength: 160 } } },
   },
-  { name: 'record_reference', description: 'What Quickdraw records look like, by type, with the colour, size, font and geometry names: read before put_items.', inputSchema: { type: 'object', properties: {} } },
+  {
+    name: 'measure_items',
+    description:
+      'The space records would take on the desktop, without placing them: each one\'s bounds { x, y, w, h } in page units. Notes and text grow with their words (a note is 200 wide and gets tall), so measure before you lay things out.',
+    inputSchema: { type: 'object', properties: { records: { type: 'array', items: RECORD } }, required: ['records'] },
+  },
+  {
+    name: 'find_space',
+    description:
+      'An empty spot on this person\'s own desktop for something w by h, as near as possible to `near` (default: the middle of what is there, or the origin). Returns { x, y } for its top-left, clear of everything visible by `gap` (default 40). Ask for one spot per thing, placing as you go, or pass `avoid` with the bounds you have already claimed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        w: { type: 'number' },
+        h: { type: 'number' },
+        near: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } } },
+        gap: { type: 'number' },
+        avoid: { type: 'array', items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } } }, description: 'Extra boxes to keep clear of, e.g. spots you were just given but have not placed yet' },
+      },
+      required: ['w', 'h'],
+    },
+  },
+  { name: 'record_reference', description: 'What Quickdraw records look like, by type, with the colour, size, font and geometry names, and how big things come out: read before put_items.', inputSchema: { type: 'object', properties: {} } },
   { name: 'dev_setup', description: 'How to run the desktop.fyi client locally against the real site with this key, to work on the UI with real data.', inputSchema: { type: 'object', properties: {} } },
 ]
 
@@ -146,6 +169,31 @@ Names:
   font   draw | sans | serif | mono
   dash   ${DASH_IDS.join(' | ')}
   fill   ${FILL_IDS.join(' | ')}
+
+What each kind is for (a desktop reads like a desk, not a slide):
+  text   the workhorse: headings (size l or xl), captions, and paragraphs. For a paragraph or a column of prose use
+         autosize: false with w around 320 to 420 so it wraps; a heading is one short line with autosize: true.
+  note   a sticky: a remark of a sentence or three stuck beside something (a comment, a to-do, an aside). Its colour
+         is part of the message (yellow default; light-red for a warning, light-green for done, blue for a question).
+         Not for essays, tables or columns of content: that is what text is for.
+  geo    a box or zone (rectangle, ellipse, ...) to frame or group things, with an optional short label; fill: semi
+         tints it. Put things inside a zone by placing them within its bounds.
+  arrow  a connection between two things, from one to another (headEnd: "arrow"); tie its ends with startBind /
+         endBind: { id, nx: 0.5, ny: 0.5 } so it follows them when they move. line is the same without a head.
+  image  a picture, through put_image.
+  A layout is a heading, then things laid out under and beside it with a little air between them; stickies go
+  next to what they comment on. Read my_desktop first: place new work near the person's existing things, in
+  empty space (find_space), never on top of them.
+
+How big things come out (page units, pixels at zoom 1):
+  text   one line is about 0.55 × font size per character (size s 18, m 24, l 36, xl 44), lines 1.32 × font size tall;
+         with autosize: true a line runs as long as its text, so break long text with newlines or set autosize: false and a w
+  note   200 wide (props.w to change) and as tall as its words need at about 14 characters a line: a paragraph makes a
+         tall note. Keep a note under ~40 words; for more, use a text record with autosize: false and w: 320 or so.
+  geo, image  exactly props.w × props.h
+Plan a layout with measure_items, claim spots with find_space, and read the bounds and overlaps that put_items returns.
+Things you place near each other are one clump to the feed and the room; leave a little air (40 or more) between
+things that should read apart.
 
 Freshness: a thing ages a day per day; it fades from day 1, hides at day 3 (only its author sees it),
 and is archived at day 7. Editing it, or adding something next to it, keeps it (and its neighbours) fresh;
@@ -266,13 +314,37 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
   const mine = () => board(env, user.id)
   const here = `${origin}/@${user.handle}`
   const strip = (items: FeedItem[]) => items.map(({ record, asset, ...rest }) => rest)
+  const apply = (diff: WireDiff, userId: string, layer: string) => mine().applyAs(diff, userId, layer) as unknown as Promise<{ accepted: WireDiff; rejected: string[] }>
+  /** Items with their bounds on the desktop, and the extent of them all. */
+  const placed = (items: FeedItem[]) => {
+    const withBounds = items.map((i) => ({ ...i, bounds: i.record ? approxBounds(i.record as BoardRecord) : null }))
+    let extent: Box | null = null
+    for (const i of withBounds) {
+      const b = i.bounds
+      if (!b) continue
+      extent = extent ? union(extent, b) : { ...b }
+    }
+    return { items: withBounds, extent }
+  }
+  /** After a write: what each landed record covers, and what else it now sits on. */
+  const landed = async (put: Record<string, BoardRecord>) => {
+    const ids = Object.keys(put).filter((id) => put[id]!.typeName === 'shape')
+    if (!ids.length) return []
+    const all = ((await mine().itemsFor(user.id)) as FeedItem[]).filter((i) => i.record)
+    return ids.map((id) => {
+      const b = approxBounds(put[id]!)
+      const overlaps = all.filter((i) => i.id !== id && !ids.includes(i.id) && gapBetween(b, approxBounds(i.record as BoardRecord)) === 0).map((i) => i.id)
+      return { id, bounds: b, overlaps }
+    })
+  }
   switch (name) {
     case 'whoami':
       return text(toMe(env, user))
     case 'my_desktop': {
-      const items = (await mine().itemsFor(user.id)) as FeedItem[]
-      const people = (await d.usersByIds([...new Set(items.flatMap((i) => [i.meta.by, i.meta.layer]))])).map(toPerson)
-      return text({ desktop: here, items: args.records === false ? strip(items) : items, people })
+      const raw = (await mine().itemsFor(user.id)) as FeedItem[]
+      const people = (await d.usersByIds([...new Set(raw.flatMap((i) => [i.meta.by, i.meta.layer]))])).map(toPerson)
+      const { items, extent } = placed(raw)
+      return text({ desktop: here, extent, items: args.records === false ? strip(items) : items, people })
     }
     case 'desktop': {
       const handle = String(args.handle ?? '').replace(/^@/, '').toLowerCase()
@@ -280,9 +352,10 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
       const target = await d.userByHandle(handle)
       if (!target) throw new Error(`No desktop at @${handle}`)
       const profile = await profileOf(env, target, user)
-      const items = (await board(env, target.id).allVisible()) as FeedItem[]
-      const people = (await d.usersByIds([...new Set(items.flatMap((i) => [i.meta.by, i.meta.layer]))])).map(toPerson)
-      return text({ profile, items, people })
+      const raw = (await board(env, target.id).allVisible()) as FeedItem[]
+      const people = (await d.usersByIds([...new Set(raw.flatMap((i) => [i.meta.by, i.meta.layer]))])).map(toPerson)
+      const { items, extent } = placed(raw)
+      return text({ profile, extent, items, people })
     }
     case 'everyone': {
       const room = await buildEveryone(env)
@@ -300,8 +373,36 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
         const id = typeof r.id === 'string' && r.id ? r.id : `shape:${randomId(9)}`
         put[id] = { typeName: 'shape', rot: 0, z: 1, ...r, id } as unknown as BoardRecord
       }
-      const result = await mine().applyAs({ put, removed: [] } satisfies WireDiff, user.id, user.id)
-      return text({ ...result, desktop: here })
+      const result = await apply({ put, removed: [] } satisfies WireDiff, user.id, user.id)
+      return text({ ...result, placed: await landed(result.accepted.put), desktop: here })
+    }
+    case 'measure_items': {
+      const records = Array.isArray(args.records) ? (args.records as Array<Record<string, unknown>>) : []
+      if (!records.length) throw new Error('Pass records')
+      return text(records.map((r) => ({ id: r.id ?? null, type: r.type, bounds: approxBounds({ typeName: 'shape', rot: 0, z: 1, x: 0, y: 0, ...r } as unknown as BoardRecord) })))
+    }
+    case 'find_space': {
+      const w = Number(args.w), h = Number(args.h), gap = Number.isFinite(Number(args.gap)) ? Number(args.gap) : 40
+      if (!(w > 0 && h > 0)) throw new Error('w and h are required numbers')
+      const all = ((await mine().itemsFor(user.id)) as FeedItem[]).filter((i) => i.record).map((i) => approxBounds(i.record as BoardRecord))
+      const avoid = Array.isArray(args.avoid) ? (args.avoid as Box[]).filter((b) => [b.x, b.y, b.w, b.h].every(Number.isFinite)) : []
+      const taken = [...all, ...avoid]
+      let extent: Box | null = null
+      for (const b of all) extent = extent ? union(extent, b) : { ...b }
+      const near = args.near && typeof args.near === 'object' ? (args.near as { x?: number; y?: number }) : {}
+      const cx = Number.isFinite(Number(near.x)) ? Number(near.x) : extent ? extent.x + extent.w / 2 : 0
+      const cy = Number.isFinite(Number(near.y)) ? Number(near.y) : extent ? extent.y + extent.h / 2 : 0
+      const clear = (x: number, y: number) => taken.every((b) => gapBetween({ x, y, w, h }, b) >= gap)
+      const step = 24
+      let r = 0, t = 0
+      for (let n = 0; n < 200000; n++) {
+        const x = cx + r * Math.cos(t) - w / 2, y = cy + r * Math.sin(t) - h / 2
+        if (clear(x, y)) return text({ x: Math.round(x), y: Math.round(y), w, h, gap })
+        const dt = step / Math.max(r, step)
+        t += dt
+        r += (step * dt) / (Math.PI * 2)
+      }
+      throw new Error('No room found near there')
     }
     case 'update_items': {
       const updates = Array.isArray(args.updates) ? (args.updates as Array<Record<string, unknown>>) : []
@@ -324,13 +425,13 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
         const props = u.props && typeof u.props === 'object' ? { ...rec.props, ...(u.props as Record<string, unknown>) } : rec.props
         put[id] = { ...rec, x: num(u.x, rec.x), y: num(u.y, rec.y), rot: num(u.rot, rec.rot), z: num(u.z, rec.z), props } as unknown as BoardRecord
       }
-      const result = Object.keys(put).length ? await mine().applyAs({ put, removed: [] } satisfies WireDiff, user.id, user.id) : { accepted: { put: {}, removed: [] }, rejected: [] }
-      return text({ changed: Object.keys(result.accepted.put), refused: [...refused, ...result.rejected.map((id) => ({ id, why: 'not accepted' }))], desktop: here })
+      const result = Object.keys(put).length ? await apply({ put, removed: [] } satisfies WireDiff, user.id, user.id) : { accepted: { put: {}, removed: [] }, rejected: [] }
+      return text({ changed: await landed(result.accepted.put), refused: [...refused, ...result.rejected.map((id) => ({ id, why: 'not accepted' }))], desktop: here })
     }
     case 'remove_items': {
       const removed = ids(args.ids)
       if (!removed.length) throw new Error('Nothing to remove: pass ids')
-      const result = await mine().applyAs({ put: {}, removed } satisfies WireDiff, user.id, user.id)
+      const result = await apply({ put: {}, removed } satisfies WireDiff, user.id, user.id)
       return text({ removed: result.accepted.removed, refused: result.rejected, desktop: here })
     }
     case 'keep_items':
@@ -371,8 +472,8 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
         [assetId]: { id: assetId, typeName: 'asset', src: `/api/uploads/${uploadId}`, w, h } as unknown as BoardRecord,
         [shapeId]: { id: shapeId, typeName: 'shape', type: 'image', x, y, rot: 0, z: 1, props: { w, h, assetId } } as unknown as BoardRecord,
       }
-      const result = await mine().applyAs({ put, removed: [] } satisfies WireDiff, user.id, user.id)
-      return text({ ...result, image: `${origin}/api/uploads/${uploadId}`, desktop: here })
+      const result = await apply({ put, removed: [] } satisfies WireDiff, user.id, user.id)
+      return text({ ...result, placed: await landed(result.accepted.put), image: `${origin}/api/uploads/${uploadId}`, desktop: here })
     }
     case 'update_profile': {
       const patch: { name?: string; bio?: string | null } = {}
@@ -393,4 +494,9 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
     default:
       throw new Error(`No tool called ${name}`)
   }
+}
+
+function union(a: Box, b: Box): Box {
+  const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y)
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y }
 }
