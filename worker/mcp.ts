@@ -156,7 +156,8 @@ anything nearby for something new.
   text   props: { text, color, size, font, align: "start" | "middle" | "end", autosize: true, scale: 1 }
          (autosize: false with a numeric w wraps at that width)
   note   props: { text, color: "yellow", size: "m", font, scale: 1 }          a sticky note, 200 square by default
-  geo    props: { geo, w, h, color, size, dash, fill, font, label? }          geo: ${GEO_IDS.join(' | ')}
+  geo    props: { geo, w, h, color, size, dash, fill, font, label?, labelSize? }   geo: ${GEO_IDS.join(' | ')}
+  any shape may carry groupId (a shared string): grouped things are one piece
   arrow  props: { dx, dy, bend: 0, headStart: "none", headEnd: "arrow", color, size, dash }
   line   props: { dx, dy, bend: 0, headStart: "none", headEnd: "none", color, size, dash }
   draw   props: { pts: [x0, y0, pressure0, x1, y1, pressure1, ...], color, size, dash }   points relative to x, y
@@ -176,8 +177,12 @@ What each kind is for (a desktop reads like a desk, not a slide):
   note   a sticky: a remark of a sentence or three stuck beside something (a comment, a to-do, an aside). Its colour
          is part of the message (yellow default; light-red for a warning, light-green for done, blue for a question).
          Not for essays, tables or columns of content: that is what text is for.
-  geo    a box or zone (rectangle, ellipse, ...) to frame or group things, with an optional short label; fill: semi
-         tints it. Put things inside a zone by placing them within its bounds.
+  geo    a box or zone (rectangle, ellipse, ...) to frame or group things; fill: semi tints it. A short label (a word
+         or a line: props.label, optional labelSize s | m | l) wraps and centres inside it, right for a title or a node.
+         For a paragraph, a list or anything with its own alignment, do not stuff the label: put a text block on top
+         of the box and group them. Same groupId on both, box at a lower z, text inside the box's bounds with about
+         16 of padding, box sized from measure_items of the text plus that padding. Grouped, they select, move,
+         feed and show as one thing.
   arrow  a connection between two things, from one to another (headEnd: "arrow"); tie its ends with startBind /
          endBind: { id, nx: 0.5, ny: 0.5 } so it follows them when they move. line is the same without a head.
   image  a picture, through put_image.
