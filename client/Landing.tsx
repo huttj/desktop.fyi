@@ -13,6 +13,9 @@ export function Landing() {
         <a className="Button" href="/login">
           Sign in with email
         </a>
+        <p className="Muted Landing-peek">
+          Or <a href="/everyone">see what everyone is making</a> first.
+        </p>
       </div>
     </div>
   )

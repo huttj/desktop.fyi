@@ -12,6 +12,7 @@ Your desktop, on the web. Paste anything onto an infinite canvas. Friends can ad
   - moving next to newer things is a medium bump
   - whatever an item earns spreads to its neighbours, so comments keep their subject alive and the reverse
 - **People.** Sign in with an emailed link; a first sign-in makes the account. Follow is one-way. `/feed` shows what the people you follow made this week and what is about to vanish (yours, hidden ones included).
+- **Everyone.** `/everyone` is the public room: the newest hundred things across every desktop, drawn small and scattered over one surface, newest in the middle, each leading to its desktop. `/api/everyone` fans out to every board and is cached for a minute per edge location.
 - **Data request:** `/api/me/export` (linked from Settings) returns everything, archive included.
 - **Email** goes out through Cloudflare Email Sending. Local dev never sends: the link is printed to the wrangler console.
 - **Images** are uploaded to R2 (named by content hash) before they sync; the document only ever holds the upload URL.

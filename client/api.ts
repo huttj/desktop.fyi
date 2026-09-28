@@ -1,4 +1,4 @@
-import type { DesktopStats, Feed, Me, Person, Profile, Revision, UserSummary } from '../shared/types'
+import type { DesktopStats, Everyone, Feed, Me, Person, Profile, Revision, UserSummary } from '../shared/types'
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -41,6 +41,7 @@ export const api = {
   follow: (handle: string) => call<{ ok: true }>(`/api/users/${h(handle)}/follow`, { method: 'POST' }),
   unfollow: (handle: string) => call<{ ok: true }>(`/api/users/${h(handle)}/follow`, { method: 'DELETE' }),
   feed: () => call<Feed>('/api/feed'),
+  everyone: () => call<Everyone>('/api/everyone'),
   stats: (handle: string) => call<DesktopStats>(`/api/users/${h(handle)}/stats`),
   history: (handle: string, id: string) => call<Revision[]>(`/api/users/${h(handle)}/items/${encodeURIComponent(id)}/history`),
   admin: {

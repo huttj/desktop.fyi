@@ -151,6 +151,9 @@ export function TopBar({
               >
                 Feed
               </button>
+              <a className="TopBar-item" href="/everyone">
+                Everyone
+              </a>
               <button type="button" className="TopBar-item" onClick={() => (onOpen('profile'), setMenuOpen(false))}>
                 Profile
               </button>

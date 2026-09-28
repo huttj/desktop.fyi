@@ -97,6 +97,21 @@ export interface Feed {
   people: Person[]
 }
 
+/** The public room: the newest things on every desktop, and how big the place is. */
+export interface Everyone {
+  items: FeedItem[]
+  people: Person[]
+  counts: {
+    /** Desktops that exist (people who finished signing up). */
+    desktops: number
+    /** Desktops touched in the last week. */
+    active: number
+    /** Things visible on all of them right now. */
+    things: number
+  }
+  builtAt: number
+}
+
 export interface ApiError {
   error: string
 }

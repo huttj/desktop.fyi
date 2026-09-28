@@ -275,6 +275,11 @@ body {
   position: absolute;
   inset: 0;
   overflow: hidden;
+}
+
+/* The public room (/everyone) wears the same chrome, following the OS theme. */
+.CanvasRoot,
+.World {
   --panel: rgba(255, 255, 255, 0.92);
   --panel-glass: rgba(255, 255, 255, 0.72);
   --panel-solid: #ffffff;
@@ -287,7 +292,8 @@ body {
   color-scheme: light;
 }
 
-.CanvasRoot[data-theme='dark'] {
+.CanvasRoot[data-theme='dark'],
+.World[data-theme='dark'] {
   --panel: rgba(19, 17, 13, 0.85);
   --panel-glass: rgba(19, 17, 13, 0.66);
   --panel-solid: #1c1a16;
@@ -581,7 +587,8 @@ img.Avatar {
   color: var(--panel-fg);
 }
 
-.CanvasRoot {
+.CanvasRoot,
+.World {
   --pill-h: 38px;
 }
 
@@ -621,7 +628,8 @@ img.Avatar {
   border-color: transparent;
 }
 
-.CanvasRoot[data-theme='dark'] .TopBar-button--primary {
+.CanvasRoot[data-theme='dark'] .TopBar-button--primary,
+.World[data-theme='dark'] .TopBar-button--primary {
   background: #fbf9f4;
   color: #211d14;
 }
@@ -1326,6 +1334,15 @@ img.Avatar {
   color: #c98a1b;
 }
 
+/* Vanishing things age like paper: the picture goes sepia as the days pass, fully so once hidden. */
+.Entry--vanishing .Entry-scene {
+  background: color-mix(in srgb, var(--panel), #c98a1b calc(var(--sepia, 0) * 14%));
+}
+
+.Entry--vanishing .Entry-scene canvas {
+  filter: sepia(var(--sepia, 0)) contrast(calc(1 - var(--sepia, 0) * 0.15));
+}
+
 .Entry-avatars {
   display: flex;
   flex: none;
@@ -1789,4 +1806,162 @@ img.Avatar {
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+}
+
+/* ---- Everyone: the public room ---- */
+
+.World {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  color: var(--fg);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.World-surface {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  touch-action: none;
+  background-image: radial-gradient(var(--line) 1.2px, transparent 1.2px);
+  background-size: 40px 40px;
+}
+
+.World-surface:active {
+  cursor: grabbing;
+}
+
+.World-plane {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.World-thing {
+  position: absolute;
+  display: block;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+  transition: transform 160ms ease;
+}
+
+.World-thing canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.World-thing:hover {
+  transform: scale(1.04);
+  z-index: 2;
+}
+
+.World-by {
+  position: absolute;
+  left: -6px;
+  bottom: -8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  box-shadow: var(--panel-shadow);
+  color: var(--panel-fg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.World-caption {
+  display: none;
+  padding-right: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.World-thing:hover .World-caption,
+.World-thing:focus-visible .World-caption {
+  display: inline;
+}
+
+.World-header {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px 8px 12px;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--panel-fg);
+  border: 1px solid var(--panel-line);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(10px);
+  max-width: calc(100vw - 120px);
+}
+
+.World-wordmark {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.World-title {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.World-counts {
+  color: var(--panel-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.World-corner {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.World-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  color: var(--panel-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+@media (max-width: 560px) {
+  .World-header {
+    max-width: calc(100vw - 100px);
+  }
+  .World-wordmark {
+    display: none;
+  }
 }

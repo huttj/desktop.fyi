@@ -5,7 +5,7 @@ import { BoardDurableObject, OWNER_HEADER, USER_HEADER } from './BoardDurableObj
 import { Db, HANDLE_RE, RESERVED_HANDLES, toPerson, toSummary, type UserRow } from './db'
 import { sendMagicLink } from './email'
 import { DAY_MS } from '../shared/freshness'
-import type { DesktopStats, Feed, FeedItem, Me, Person, PlacedItem, Profile, Revision } from '../shared/types'
+import type { DesktopStats, Everyone, Feed, FeedItem, Me, Person, PlacedItem, Profile, Revision } from '../shared/types'
 
 export { BoardDurableObject } from './BoardDurableObject'
 
@@ -17,6 +17,11 @@ const AVATAR_MAX_BYTES = 512 * 1024
 const TOKEN_MIN_INTERVAL_MS = 30 * 1000
 const TOKENS_PER_HOUR = 6
 const FEED_WINDOW_MS = 7 * DAY_MS
+/** The public room: at most this many desktops are asked, this many things each, this many shown. */
+const EVERYONE_MAX_BOARDS = 500
+const EVERYONE_PER_BOARD = 40
+const EVERYONE_ITEMS = 100
+const EVERYONE_TTL_S = 60
 
 async function readJson<T>(request: IRequest): Promise<Partial<T>> {
   try {
@@ -303,6 +308,60 @@ const router = AutoRouter<IRequest, Args>({
     const people: Person[] = (await d.usersByIds([...ids])).map(toPerson)
     const feed: Feed = { recent, vanishing, placed, people }
     return json(feed)
+  })
+
+  // ---- everyone ----
+  // The newest things across every desktop, for the public room at /everyone. It fans
+  // out to every board, so the answer is cached for a minute per edge location.
+  .get('/api/everyone', async (request, env, ctx) => {
+    const cache = caches.default
+    const key = new Request(new URL('/api/everyone', request.url).toString())
+    const hit = await cache.match(key)
+    if (hit) return hit
+
+    const d = db(env)
+    const users = (await d.listUsers()).filter((u) => u.handle).slice(0, EVERYONE_MAX_BOARDS)
+    const now = Date.now()
+    const since = now - FEED_WINDOW_MS
+    const results = await Promise.all(
+      users.map(async (u) => {
+        const stub = board(env, u.id)
+        try {
+          const [recent, summary] = await Promise.all([stub.activity(since, EVERYONE_PER_BOARD), stub.summary()])
+          return { recent, summary }
+        } catch (e) {
+          console.warn('everyone: board unavailable', u.id, e)
+          return { recent: [] as FeedItem[], summary: { liveItems: 0, lastActivityAt: null as number | null } }
+        }
+      })
+    )
+    // only things the page can draw: the record itself travels, and big drawings do not
+    const items = results
+      .flatMap((r) => r.recent)
+      .filter((i) => i.record)
+      .sort((a, b) => b.meta.editedAt - a.meta.editedAt)
+      .slice(0, EVERYONE_ITEMS)
+    const ids = new Set<string>()
+    for (const i of items) {
+      ids.add(i.boardId)
+      ids.add(i.meta.by)
+    }
+    const people: Person[] = (await d.usersByIds([...ids])).map(toPerson)
+    const payload: Everyone = {
+      items,
+      people,
+      counts: {
+        desktops: users.length,
+        active: results.filter((r) => r.summary.lastActivityAt !== null && r.summary.lastActivityAt >= since).length,
+        things: results.reduce((n, r) => n + r.summary.liveItems, 0),
+      },
+      builtAt: now,
+    }
+    const res = new Response(JSON.stringify(payload), {
+      headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${EVERYONE_TTL_S}` },
+    })
+    ctx.waitUntil(cache.put(key, res.clone()))
+    return res
   })
 
   // ---- admin ----
