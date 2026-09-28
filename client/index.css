@@ -1942,6 +1942,34 @@ html {
   gap: 8px;
 }
 
+/* The room's minimap sits where the board's does: top-right, under the corner button, the room showing through. */
+.World-map {
+  position: absolute;
+  top: 58px;
+  right: 12px;
+  z-index: 4;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--panel-line);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(16px) saturate(1.2);
+}
+
+.World[data-theme='dark'] .World-map {
+  background: rgba(19, 17, 13, 0.5);
+}
+
+.World-map-canvas {
+  display: block;
+  border-radius: 11px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.World-map-canvas.is-dragging {
+  cursor: grabbing;
+}
+
 .World-hint {
   position: absolute;
   left: 50%;

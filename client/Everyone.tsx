@@ -6,6 +6,7 @@ import { api, ApiError } from './api'
 import { Avatar } from './Avatar'
 import { Landing } from './Landing'
 import { nameOf, relativeTime, type People } from './people'
+import { RoomMap } from './RoomMap'
 import { renderThumb, unionBounds } from './thumb'
 import { itemsLink } from './viewLink'
 
@@ -126,10 +127,14 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
   }, [welcoming])
 
   // The centre of the room starts in the middle of the window, a touch below the header.
+  const [viewport, setViewport] = useState({ w: window.innerWidth, h: window.innerHeight })
   useEffect(() => {
     const el = surface.current
     if (!el) return
-    const fit = () => setCamera((c) => ({ ...c, x: el.clientWidth / 2, y: el.clientHeight / 2 + 20, z: el.clientWidth < 560 ? 0.75 : c.z }))
+    const fit = () => {
+      setViewport({ w: el.clientWidth, h: el.clientHeight })
+      setCamera((c) => ({ ...c, x: el.clientWidth / 2, y: el.clientHeight / 2 + 20, z: el.clientWidth < 560 ? 0.75 : c.z }))
+    }
     fit()
     window.addEventListener('resize', fit)
     return () => window.removeEventListener('resize', fit)
@@ -144,6 +149,7 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
 
   const people: People = useMemo(() => new Map((data?.people ?? []).map((p) => [p.id, p])), [data])
   const placed = useMemo(() => (data ? scatter(data.groups) : []), [data])
+  const boxes = useMemo(() => placed.map((p) => ({ x: p.x, y: p.y, w: p.w, h: p.h })), [placed])
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
@@ -258,6 +264,7 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
           </a>
         )}
       </div>
+      {placed.length > 0 && viewport.w >= 560 && <RoomMap boxes={boxes} camera={camera} viewport={viewport} theme={theme} onCamera={setCamera} />}
       {data && placed.length === 0 && <div className="Notice">Nothing has been made this week. Be the first.</div>}
       {data && placed.length > 0 && !welcoming && <div className="World-hint Muted">The newest things sit in the middle. Drag to look around; click anything to visit its desktop.</div>}
       {welcoming && (
