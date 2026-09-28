@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
-import { approxBounds, centreOf, clumpGroups, groupIdOf, touchBoxes, type Reach } from '../shared/bounds'
+import { approxBounds, boundIdsOf, centreOf, clumpGroups, groupIdOf, isDecoration, touchBoxes, type Reach } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
 import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, SPREAD_CAP, canSee, falloff, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
@@ -706,9 +706,11 @@ export class BoardDurableObject extends DurableObject<Env> {
    * Recently touched clumps, whole: a highlight brings the words under it,
    * however old; a caption brings its picture; a new note beside a column
    * brings the column. The clump rule is shared/bounds', with the feed's reach
-   * unless `reach` says otherwise (the room wants only what touches). For the
-   * room, a clump made only of highlighter strokes is nothing to look at and is
-   * left out. Newest first, by the newest member; members newest first, all of them.
+   * unless `reach` says otherwise (the room wants only what touches). Things
+   * Quickdraw grouped are one clump, and an arrow goes with what it is tied to.
+   * For the room, a clump of nothing but arrows, lines or highlighter strokes
+   * is nothing to look at and is left out. Newest first, by the newest member;
+   * members newest first, all of them.
    */
   async recentGroups(since: number, limit = 40, { keepHighlights = false, reach }: { keepHighlights?: boolean; reach?: Reach } = {}): Promise<EveryoneGroup[]> {
     const now = Date.now()
@@ -720,7 +722,12 @@ export class BoardDurableObject extends DurableObject<Env> {
       if (age >= HIDE_AT) continue
       visible.push({ row, meta, age, rec: JSON.parse(row.data) as ShapeRecord })
     }
-    const roots = clumpGroups(visible.map((v) => touchBoxes(v.rec)), reach, visible.map((v) => groupIdOf(v.rec)))
+    const roots = clumpGroups(
+      visible.map((v) => touchBoxes(v.rec)),
+      reach,
+      visible.map((v) => groupIdOf(v.rec)),
+      { ids: visible.map((v) => v.row.id), boundTo: visible.map((v) => boundIdsOf(v.rec)) }
+    )
     const byRoot = new Map<number, typeof visible>()
     visible.forEach((v, i) => {
       const list = byRoot.get(roots[i]!) ?? []
@@ -732,7 +739,7 @@ export class BoardDurableObject extends DurableObject<Env> {
       members.sort((a, b) => b.row.edited_at - a.row.edited_at)
       const newest = members[0]!
       if (newest.row.edited_at < since) continue
-      if (!keepHighlights && members.every((m) => m.rec.type === 'highlight')) continue
+      if (!keepHighlights && members.every((m) => isDecoration(m.rec))) continue
       out.push({
         boardId: this.owner,
         editedAt: newest.row.edited_at,

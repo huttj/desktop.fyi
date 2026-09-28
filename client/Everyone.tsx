@@ -27,9 +27,9 @@ interface Laid {
   box: Box
 }
 
-const GOLDEN = Math.PI * (3 - Math.sqrt(5))
-/** Room between clumps, page units. */
-const GAP = 120
+/** Room between things, and the grain of the occupancy grid the packer works on, page units. */
+const GAP = 40
+const CELL = 32
 
 function hash(s: string) {
   let h = 2166136261
@@ -38,51 +38,91 @@ function hash(s: string) {
 }
 
 /**
- * Newest at the centre, spiralling out by area, so big clumps take the room
- * they need; then a nudge apart wherever two still overlap. Returns each
- * clump's box in the room and the shift that puts its records there.
+ * A clump's footprint: the boxes its members actually cover, not the box
+ * around them all. Text, notes, pictures and geometry are their boxes; an
+ * arrow or line is a run of small boxes along its path (bend included); ink
+ * is a run along its points. Each is padded by half the gap. Relative to the
+ * clump's own top-left, so the packer can slide the whole footprint around.
+ */
+function footprint(records: ShapeRecord[], origin: { x: number; y: number }): Box[] {
+  const out: Box[] = []
+  const pad = GAP / 2
+  const dot = (x: number, y: number) => out.push({ x: x - origin.x - pad, y: y - origin.y - pad, w: pad * 2, h: pad * 2 })
+  for (const r of records) {
+    const p = r.props as Record<string, unknown>
+    if (r.type === 'arrow' || r.type === 'line') {
+      const dx = Number(p.dx) || 0, dy = Number(p.dy) || 0, bend = Number(p.bend) || 0
+      const len = Math.hypot(dx, dy) || 1
+      // Quickdraw's quadratic: the control point sits at twice the bend so the curve passes at the bend
+      const cx = dx / 2 + (-dy / len) * bend * 2, cy = dy / 2 + (dx / len) * bend * 2
+      const steps = Math.max(2, Math.ceil(len / CELL))
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps, u = 1 - t
+        dot(r.x + u * u * 0 + 2 * u * t * cx + t * t * dx, r.y + 2 * u * t * cy + t * t * dy)
+      }
+      continue
+    }
+    if ((r.type === 'draw' || r.type === 'highlight') && Array.isArray(p.pts)) {
+      const pts = p.pts as number[]
+      const stride = Math.max(3, 3 * Math.floor(pts.length / 3 / 200)) // at most ~200 samples
+      for (let i = 0; i + 1 < pts.length; i += stride) dot(r.x + pts[i]!, r.y + pts[i + 1]!)
+      continue
+    }
+    const b = pageBounds(r)
+    out.push({ x: b.x - origin.x - pad, y: b.y - origin.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 })
+  }
+  return out
+}
+
+/**
+ * Packs the clumps, newest at the centre: each one walks a spiral outward from
+ * a little inside the filled disc and takes the first spot where its footprint
+ * lands on nothing, so later things settle into the gaps and corners earlier
+ * ones left. Returns each clump's box in the room and the shift that puts its
+ * records there.
  */
 function layout(groups: EveryoneGroup[]): Array<Laid & { dx: number; dy: number }> {
-  const boxes: Array<{ x: number; y: number; w: number; h: number; ox: number; oy: number; group: EveryoneGroup }> = []
-  let area = 0
+  const occupied = new Set<number>()
+  const cell = (v: number) => Math.floor(v / CELL)
+  const key = (cx: number, cy: number) => (cx + 32768) * 65536 + (cy + 32768)
+  const each = (boxes: Box[], ox: number, oy: number, fn: (k: number) => boolean | void) => {
+    for (const b of boxes) {
+      const x = b.x + ox, y = b.y + oy
+      for (let cx = cell(x); cx <= cell(x + b.w); cx++) for (let cy = cell(y); cy <= cell(y + b.h); cy++) if (fn(key(cx, cy)) === false) return false
+    }
+    return true
+  }
+  const free = (boxes: Box[], ox: number, oy: number) => each(boxes, ox, oy, (k) => !occupied.has(k))
+  const take = (boxes: Box[], ox: number, oy: number) => each(boxes, ox, oy, (k) => void occupied.add(k))
+  const out: Array<Laid & { dx: number; dy: number }> = []
+  let filled = 0
   for (const group of groups) {
     const records = group.items.map((it) => it.record as ShapeRecord | undefined).filter((r): r is ShapeRecord => !!r)
     const b = unionBounds(records)
     if (!b) continue
-    const i = boxes.length
-    area += (b.w + GAP) * (b.h + GAP)
-    const r = i === 0 ? 0 : Math.sqrt(area / Math.PI)
-    const t = i * GOLDEN
-    const key = group.items[0]!.id
-    const jx = (hash(key) - 0.5) * GAP
-    const jy = (hash(key + '/y') - 0.5) * GAP
-    boxes.push({ x: r * Math.cos(t) + jx - b.w / 2, y: r * Math.sin(t) + jy - b.h / 2, w: b.w, h: b.h, ox: b.x, oy: b.y, group })
-  }
-  for (let pass = 0; pass < 300; pass++) {
-    let moved = false
-    for (let i = 0; i < boxes.length; i++) {
-      for (let j = i + 1; j < boxes.length; j++) {
-        const a = boxes[i]!, b = boxes[j]!
-        const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + GAP
-        const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + GAP
-        if (ox <= 0 || oy <= 0) continue
-        moved = true
-        // push apart along the shorter overlap; the newer one (lower index) yields less
-        const ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2
-        if (ox < oy) {
-          const dir = bx >= ax ? 1 : -1
-          a.x -= dir * ox * 0.35
-          b.x += dir * ox * 0.65
-        } else {
-          const dir = by >= ay ? 1 : -1
-          a.y -= dir * oy * 0.35
-          b.y += dir * oy * 0.65
-        }
+    const print = footprint(records, b)
+    const area = print.reduce((n, f) => n + f.w * f.h, 0)
+    // start a little inside the edge of what is filled: gaps there get used, and the search stays short
+    let r = Math.sqrt(filled / Math.PI) * 0.6
+    let t = hash(group.items[0]!.id) * Math.PI * 2
+    let spot: { x: number; y: number } | null = null
+    for (let n = 0; n < 80000; n++) {
+      const x = r * Math.cos(t) - b.w / 2, y = r * Math.sin(t) - b.h / 2
+      if (free(print, x, y)) {
+        spot = { x, y }
+        break
       }
+      const dt = CELL / Math.max(r, CELL)
+      t += dt
+      r += (CELL * dt) / (Math.PI * 2)
     }
-    if (!moved) break
+    if (!spot) spot = { x: r - b.w / 2, y: -b.h / 2 }
+    take(print, spot.x, spot.y)
+    filled += area
+    const box = { x: spot.x, y: spot.y, w: b.w, h: b.h }
+    out.push({ group, box, dx: box.x - b.x, dy: box.y - b.y })
   }
-  return boxes.map((b) => ({ group: b.group, box: { x: b.x, y: b.y, w: b.w, h: b.h }, dx: b.x - b.ox, dy: b.y - b.oy }))
+  return out
 }
 
 export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boolean }) {

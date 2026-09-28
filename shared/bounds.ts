@@ -135,7 +135,7 @@ export function touchBoxes(rec: BoardRecord): Box[] {
  * group root. Each thing is one or more boxes; things Quickdraw has grouped
  * (a shared `groupId`, given in `groupOf`) are one piece however far apart.
  */
-export function clumpGroups(things: Box[][], reach?: Reach, groupOf?: Array<string | null | undefined>): number[] {
+export function clumpGroups(things: Box[][], reach?: Reach, groupOf?: Array<string | null | undefined>, ties?: { ids: string[]; boundTo: string[][] }): number[] {
   const parent = things.map((_, i) => i)
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
   if (groupOf) {
@@ -147,12 +147,34 @@ export function clumpGroups(things: Box[][], reach?: Reach, groupOf?: Array<stri
       else parent[find(i)] = find(j)
     })
   }
+  // an arrow tied to a shape goes where the shape goes
+  if (ties) {
+    const index = new Map(ties.ids.map((id, i) => [id, i]))
+    ties.boundTo.forEach((targets, i) => {
+      for (const t of targets) {
+        const j = index.get(t)
+        if (j !== undefined) parent[find(i)] = find(j)
+      }
+    })
+  }
   for (let i = 0; i < things.length; i++) {
     for (let j = i + 1; j < things.length; j++) {
       if (things[i]!.some((a) => things[j]!.some((b) => clumped(a, b, reach)))) parent[find(i)] = find(j)
     }
   }
   return things.map((_, i) => find(i))
+}
+
+/** The shapes an arrow or line is tied to at its ends (Quickdraw's startBind / endBind). */
+export function boundIdsOf(rec: BoardRecord): string[] {
+  if (rec.typeName !== 'shape' || (rec.type !== 'arrow' && rec.type !== 'line')) return []
+  const p = (rec as ShapeRecord).props as { startBind?: { id?: unknown }; endBind?: { id?: unknown } }
+  return [p.startBind?.id, p.endBind?.id].filter((id): id is string => typeof id === 'string' && !!id)
+}
+
+/** Connectors and highlighter strokes: nothing to look at on their own. */
+export function isDecoration(rec: BoardRecord): boolean {
+  return rec.typeName === 'shape' && (rec.type === 'arrow' || rec.type === 'line' || rec.type === 'highlight')
 }
 
 /** Quickdraw's group membership, when a record has one. */

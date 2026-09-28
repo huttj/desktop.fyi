@@ -17,8 +17,8 @@ import { BINDABLE, insideShape, anchorAt, rebindArrow, remapBindings } from './b
 import { parseTldrawClipboard, convertTldrawContent } from './tldraw.js'
 import { TextSurface } from './textedit.js'
 
-const ZOOM_MIN = 0.05
-const ZOOM_MAX = 8
+const ZOOM_MIN = 0.02
+const ZOOM_MAX = 32
 const HANDLE = 8 // screen px
 const RESIZE_CURSORS = {
   tl: 'nwse-resize', br: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize',
