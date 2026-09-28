@@ -1064,6 +1064,11 @@ img.Avatar {
   top: 58px;
 }
 
+/* A visitor who is not signed in gets no tools, only the map: the room refuses their edits anyway. */
+.CanvasRoot--viewer .qd-ui > :not(.qd-minimap) {
+  display: none !important;
+}
+
 /* you, top-right: photo and name are one button; the ring around the photo is the connection light */
 
 .TopBar-me {
@@ -1997,7 +2002,7 @@ html {
   }
 }
 
-/* The welcome card over the room: a faint scrim, the room still moving behind it. */
+/* The welcome card over the room: the room dims and softens a little behind it, still moving. */
 .World-welcome {
   position: absolute;
   inset: 0;
@@ -2005,8 +2010,15 @@ html {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: color-mix(in srgb, var(--bg) 35%, transparent);
-  z-index: 5;
+  background: rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(2.5px);
+  /* under the chrome: the header, the corner button and the map stay crisp */
+  z-index: 3;
+}
+
+.World-header,
+.World-corner {
+  z-index: 6;
 }
 
 .World-welcome .Card {

@@ -441,13 +441,12 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   }
 
   return (
-    <div className="CanvasRoot" data-theme={theme} onPointerMove={onPointerMove} onPointerLeave={onPointerLeave} {...guards}>
+    <div className={`CanvasRoot${me ? '' : ' CanvasRoot--viewer'}`} data-theme={theme} onPointerMove={onPointerMove} onPointerLeave={onPointerLeave} {...guards}>
       <Quickdraw
         store={store}
         theme={theme}
         grid={grid}
         styles={{ color: 'black' }}
-        hideUi={!me}
         watermark={false}
         onMount={onMount}
         onThemeChange={(t) => {

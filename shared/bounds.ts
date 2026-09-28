@@ -85,16 +85,27 @@ export function gapBetween(a: Box, b: Box): number {
   return Math.hypot(dx, dy)
 }
 
-/** Boxes at most this far apart (page units) count as touching: a highlight lies on its words, a caption hugs its picture. */
-export const TOUCH = 6
+/**
+ * A clump: things that sit together on a desktop. Whatever people put near
+ * each other belongs together, the same instinct the decay rules use, so a
+ * title, a picture and the sticky beside it are one thing to the feed and the
+ * room. Boxes closer than this (page units) belong together; bigger things
+ * reach a touch further.
+ */
+export const CLUSTER_GAP = 110
 
-/** Which of these boxes touch which, transitively: the index of each one's group root. */
-export function touchingGroups(boxes: Box[], tolerance = TOUCH): number[] {
+export function clumped(a: Box, b: Box): boolean {
+  const reach = CLUSTER_GAP + 0.04 * Math.min(Math.max(a.w, a.h), Math.max(b.w, b.h))
+  return gapBetween(a, b) <= reach
+}
+
+/** Which of these boxes clump with which, transitively: the index of each one's group root. */
+export function clumpGroups(boxes: Box[], together: (a: Box, b: Box) => boolean = clumped): number[] {
   const parent = boxes.map((_, i) => i)
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
-      if (gapBetween(boxes[i]!, boxes[j]!) <= tolerance) parent[find(i)] = find(j)
+      if (together(boxes[i]!, boxes[j]!)) parent[find(i)] = find(j)
     }
   }
   return boxes.map((_, i) => find(i))

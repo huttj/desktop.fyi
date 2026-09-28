@@ -5,14 +5,14 @@ import type { Feed as FeedData, FeedItem, Me, PlacedItem } from '../shared/types
 import { api, ApiError } from './api'
 import { Avatar } from './Avatar'
 import { nameOf, relativeTime, type People } from './people'
-import { gapBetween } from '../shared/bounds'
+import { clumped } from '../shared/bounds'
 import { renderThumb } from './thumb'
 import { itemsLink } from './viewLink'
 
 /**
- * A cluster: things that sit together on one desktop. Whatever people put
- * near each other belongs together, the same instinct the decay rules use,
- * so a title, a picture and the sticky beside it read as one entry.
+ * A cluster: things that sit together on one desktop (the clump rule lives in
+ * shared/bounds). The board ships whole clumps, old members included, so an
+ * entry's scene and count are the clump as it stands, not only what is new.
  */
 interface Group {
   key: string
@@ -25,9 +25,6 @@ interface Group {
   /** A short piece of text from the cluster, if it has one: its caption. */
   title: string | null
 }
-
-/** Boxes closer than this (page units) belong to the same cluster; bigger things reach a touch further. */
-const CLUSTER_GAP = 110
 
 /**
  * Clusters run over everything placed on a desktop, not only the things in
@@ -61,9 +58,7 @@ function clusterItems(items: FeedItem[], placedByBoard: Record<string, PlacedIte
     const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i]!, b = nodes[j]!
-        const reach = CLUSTER_GAP + 0.04 * Math.min(Math.max(a.w, a.h), Math.max(b.w, b.h))
-        if (gapBetween(a, b) <= reach) parent[find(i)] = find(j)
+        if (clumped(nodes[i]!, nodes[j]!)) parent[find(i)] = find(j)
       }
     }
     const index = new Map(nodes.map((n, i) => [n.id, i]))
