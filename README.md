@@ -12,10 +12,14 @@ Your desktop, on the web. Paste anything onto an infinite canvas. Friends can ad
   - moving next to newer things is a medium bump
   - whatever an item earns spreads to its neighbours, so comments keep their subject alive and the reverse
 - **People.** Sign in with an emailed link; a first sign-in makes the account. Follow is one-way. `/feed` shows what the people you follow made this week and what is about to vanish (yours, hidden ones included).
-- **Everyone.** `/everyone` is the public room: the newest five hundred things across every desktop, laid out at true size on one Quickdraw board, newest in the middle, each leading to its desktop. Clumps travel whole and the room's clump reach is wide (a section's heading, posts and diagram are one thing; a whole desktop may be), and highlighter strokes alone are left out. `/api/everyone` fans out to every board and is cached for a minute per edge location.
+- **Everyone.** `/everyone` is the public room: the newest five hundred things across every desktop, laid out at true size on one Quickdraw board, newest in the middle, each leading to its desktop. Things touched this week arrive with whatever they physically touch (a highlight brings the words under it), no further; highlighter strokes alone are left out. `/api/everyone` fans out to every board and is cached for a minute per edge location.
 - **Data request:** `/api/me/export` (linked from Settings) returns everything, archive included.
 - **Email** goes out through Cloudflare Email Sending. Local dev never sends: the link is printed to the wrangler console.
 - **Images** are uploaded to R2 (named by content hash) before they sync; the document only ever holds the upload URL.
+
+## API keys and MCP
+
+Under **Profile → API keys** anyone can mint a personal access key. It acts as them: reads everything they can see, writes only to their own desktop and account (never admin, never another desktop's board). Send it as `Authorization: Bearer dfyi_…`, or paste its MCP link (`https://desktop.fyi/mcp/<key>`) into Claude: `claude mcp add --transport http desktop-fyi <link>`. The MCP server (`worker/mcp.ts`, plain JSON-RPC over HTTP) offers `whoami`, `everyone`, `desktop`, `feed`, `put_items`, `update_profile` and `dev_setup`, which explains the next section.
 
 ## Develop
 
@@ -26,6 +30,12 @@ npm run dev
 ```
 
 `npm test` runs the decay engine tests; `npm run check` type-checks.
+
+To work on the client against the real site (real data, acting as you, writing only to your own desktop):
+
+```sh
+DFYI_UPSTREAM=https://desktop.fyi DFYI_TOKEN=dfyi_… npm run dev
+```
 
 ## Deploy
 

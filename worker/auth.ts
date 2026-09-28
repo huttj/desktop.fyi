@@ -1,3 +1,4 @@
+import type { Me } from '../shared/types'
 import { Db, type UserRow } from './db'
 
 export const SESSION_COOKIE = 'dfyi_session'
@@ -31,10 +32,32 @@ export function clearSessionCookie(request: Request) {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`
 }
 
-export async function getSessionUser(request: Request, env: Env): Promise<UserRow | null> {
+export const TOKEN_RE = /^dfyi_[A-Za-z0-9_-]{20,}$/
+
+export function readBearer(request: Request): string | null {
+  const m = /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') ?? '')
+  return m && TOKEN_RE.test(m[1]!) ? m[1]! : null
+}
+
+/**
+ * Who is asking, and how. A personal access token acts as its person for
+ * reading, and for writing to their own desktop and account only: the routes
+ * that reach further (admin, other desktops' boards) check `viaToken`.
+ */
+export async function getAuth(request: Request, env: Env): Promise<{ user: UserRow; viaToken: boolean } | null> {
+  const bearer = readBearer(request)
+  if (bearer) {
+    const user = await new Db(env.DB).userByApiToken(bearer)
+    return user ? { user, viaToken: true } : null
+  }
   const sessionId = readCookie(request, SESSION_COOKIE)
   if (!sessionId) return null
-  return new Db(env.DB).sessionUser(sessionId)
+  const user = await new Db(env.DB).sessionUser(sessionId)
+  return user ? { user, viaToken: false } : null
+}
+
+export async function getSessionUser(request: Request, env: Env): Promise<UserRow | null> {
+  return (await getAuth(request, env))?.user ?? null
 }
 
 export function isLocal(request: Request) {
@@ -45,4 +68,8 @@ export function isLocal(request: Request) {
 export function publicOrigin(request: Request, env: Env) {
   const origin = new URL(request.url).origin
   return isLocal(request) ? origin : env.SITE_URL
+}
+
+export function toMe(env: Env, u: UserRow): Me {
+  return { id: u.id, email: u.email, handle: u.handle, name: u.name, avatar: u.avatar, bio: u.bio, isAdmin: isAdminEmail(env, u.email) }
 }

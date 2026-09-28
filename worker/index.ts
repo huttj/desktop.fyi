@@ -1,27 +1,22 @@
 import { AutoRouter, error, IRequest, json, RequestHandler } from 'itty-router'
 import { getAssetObjectName, handleAssetDownload, handleAssetUpload } from './assetUploads'
-import { clearSessionCookie, getSessionUser, isAdminEmail, isLocal, publicOrigin, readCookie, SESSION_COOKIE, SESSION_TTL_MS, sessionCookie, TOKEN_TTL_MS } from './auth'
-import { BoardDurableObject, OWNER_HEADER, USER_HEADER } from './BoardDurableObject'
+import { clearSessionCookie, getAuth, getSessionUser, isAdminEmail, isLocal, publicOrigin, readCookie, SESSION_COOKIE, SESSION_TTL_MS, sessionCookie, toMe, TOKEN_TTL_MS } from './auth'
+import { OWNER_HEADER, USER_HEADER } from './BoardDurableObject'
 import { Db, HANDLE_RE, RESERVED_HANDLES, toPerson, toSummary, type UserRow } from './db'
 import { sendMagicLink } from './email'
-import { ROOM_GAP } from '../shared/bounds'
-import { DAY_MS } from '../shared/freshness'
-import type { DesktopStats, Everyone, EveryoneGroup, Feed, FeedItem, Me, Person, PlacedItem, Profile, Revision } from '../shared/types'
+import { handleMcp } from './mcp'
+import { board, buildEveryone, buildFeed, profileOf } from './views'
+import type { DesktopStats, Person, Revision } from '../shared/types'
 
 export { BoardDurableObject } from './BoardDurableObject'
 
 type Args = [env: Env, ctx: ExecutionContext]
-type AuthedRequest = IRequest & { user: UserRow }
+type AuthedRequest = IRequest & { user: UserRow; viaToken: boolean }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const AVATAR_MAX_BYTES = 512 * 1024
 const TOKEN_MIN_INTERVAL_MS = 30 * 1000
 const TOKENS_PER_HOUR = 6
-const FEED_WINDOW_MS = 7 * DAY_MS
-/** The public room: at most this many desktops are asked, this many groups each, this many shown. */
-const EVERYONE_MAX_BOARDS = 500
-const EVERYONE_PER_BOARD = 200
-const EVERYONE_GROUPS = 500
 const EVERYONE_TTL_S = 60
 
 async function readJson<T>(request: IRequest): Promise<Partial<T>> {
@@ -36,26 +31,25 @@ function db(env: Env) {
   return new Db(env.DB)
 }
 
-function board(env: Env, ownerId: string) {
-  const ns = env.BOARD as DurableObjectNamespace<BoardDurableObject>
-  return ns.get(ns.idFromName(ownerId))
+/** Middleware: attach the signed-in user (by session, or by a personal access token) or bail with 401. */
+const requireAuth: RequestHandler<IRequest, Args> = async (request, env) => {
+  const auth = await getAuth(request, env)
+  if (!auth) return error(401, 'Sign in required')
+  ;(request as AuthedRequest).user = auth.user
+  ;(request as AuthedRequest).viaToken = auth.viaToken
 }
 
-/** Middleware: attach the signed-in user or bail with 401. */
-const requireAuth: RequestHandler<IRequest, Args> = async (request, env) => {
-  const user = await getSessionUser(request, env)
-  if (!user) return error(401, 'Sign in required')
-  ;(request as AuthedRequest).user = user
+/** Middleware: a person at the site itself, not a token acting for them (keys manage keys, admins administer). */
+const requireSession: RequestHandler<IRequest, Args> = async (request, env, ctx) => {
+  const denied = await requireAuth(request, env, ctx)
+  if (denied) return denied
+  if ((request as AuthedRequest).viaToken) return error(403, 'Not with an API key: do this signed in at the site')
 }
 
 const requireAdmin: RequestHandler<IRequest, Args> = async (request, env, ctx) => {
-  const denied = await requireAuth(request, env, ctx)
+  const denied = await requireSession(request, env, ctx)
   if (denied) return denied
   if (!isAdminEmail(env, (request as AuthedRequest).user.email)) return error(403, 'Admins only')
-}
-
-function toMe(env: Env, u: UserRow): Me {
-  return { id: u.id, email: u.email, handle: u.handle, name: u.name, avatar: u.avatar, bio: u.bio, isAdmin: isAdminEmail(env, u.email) }
 }
 
 async function resolveHandle(env: Env, raw: string): Promise<UserRow | null> {
@@ -185,6 +179,26 @@ const router = AutoRouter<IRequest, Args>({
     })
   })
 
+  // ---- personal access tokens ----
+  // A token acts as its person: reads everything they can, writes to their own desktop and
+  // account only. Minted and revoked here, signed in at the site; the secret shows once.
+  .get('/api/me/tokens', requireSession, async (request, env) => json(await db(env).listApiTokens((request as AuthedRequest).user.id)))
+
+  .post('/api/me/tokens', requireSession, async (request, env) => {
+    const user = (request as AuthedRequest).user
+    const body = await readJson<{ label: string }>(request)
+    const label = (body.label ?? '').trim().replace(/\s+/g, ' ').slice(0, 40) || 'API key'
+    const d = db(env)
+    if ((await d.listApiTokens(user.id)).length >= 10) return error(400, 'Ten keys is plenty: revoke one first')
+    return json(await d.createApiToken(user.id, label))
+  })
+
+  .delete('/api/me/tokens/:id', requireSession, async (request, env) => {
+    const ok = await db(env).revokeApiToken((request as AuthedRequest).user.id, request.params.id)
+    if (!ok) return error(404, 'No such key')
+    return json({ ok: true })
+  })
+
   // ---- people ----
   .get('/api/users', async (request, env) => {
     const raw = typeof request.query.ids === 'string' ? request.query.ids : ''
@@ -202,20 +216,7 @@ const router = AutoRouter<IRequest, Args>({
   .get('/api/users/:handle', async (request, env) => {
     const target = await resolveHandle(env, request.params.handle)
     if (!target) return error(404, 'No such desktop')
-    const d = db(env)
-    const viewer = await getSessionUser(request, env)
-    const [counts, summary, isFollowing, followsYou] = await Promise.all([
-      d.followCounts(target.id),
-      board(env, target.id).summary(),
-      viewer ? d.isFollowing(viewer.id, target.id) : Promise.resolve(undefined),
-      viewer ? d.isFollowing(target.id, viewer.id) : Promise.resolve(undefined),
-    ])
-    const profile: Profile = { ...toPerson(target), ...counts, liveItems: summary.liveItems, lastActivityAt: summary.lastActivityAt }
-    if (viewer) {
-      profile.isFollowing = isFollowing
-      profile.followsYou = followsYou
-    }
-    return json(profile)
+    return json(await profileOf(env, target, await getSessionUser(request, env)))
   })
 
   /** Viewer stats: the desktop's owner (or an admin) only. */
@@ -274,93 +275,18 @@ const router = AutoRouter<IRequest, Args>({
   })
 
   // ---- feed ----
-  // Fan out to the desktops you follow (and your own). Boards are the source of
-  // truth for freshness, so nothing here is cached or indexed elsewhere.
-  .get('/api/feed', requireAuth, async (request, env) => {
-    const me = (request as AuthedRequest).user
-    const d = db(env)
-    const following = await d.followingIds(me.id)
-    const since = Date.now() - FEED_WINDOW_MS
-    const boards = [me.id, ...following]
-    const results = await Promise.all(
-      boards.map(async (id) => {
-        const stub = board(env, id)
-        try {
-          const [recent, vanishing, placed] = await Promise.all([stub.activity(since, 60), stub.vanishing(id === me.id ? me.id : null, 40), stub.placed()])
-          return { id, recent, vanishing, placed }
-        } catch (e) {
-          console.warn('feed: board unavailable', id, e)
-          return { id, recent: [] as FeedItem[], vanishing: [] as FeedItem[], placed: [] as PlacedItem[] }
-        }
-      })
-    )
-    const recent = results.flatMap((r) => r.recent).sort((a, b) => b.meta.editedAt - a.meta.editedAt).slice(0, 240)
-    const vanishing = results.flatMap((r) => r.vanishing).sort((a, b) => b.age - a.age).slice(0, 120)
-    const placed: Record<string, PlacedItem[]> = {}
-    for (const r of results) if (r.placed.length) placed[r.id] = r.placed
-    const ids = new Set<string>()
-    for (const item of [...recent, ...vanishing]) {
-      ids.add(item.boardId)
-      ids.add(item.meta.by)
-      ids.add(item.meta.layer)
-      ids.add(item.meta.editedBy)
-    }
-    for (const id of following) ids.add(id)
-    const people: Person[] = (await d.usersByIds([...ids])).map(toPerson)
-    const feed: Feed = { recent, vanishing, placed, people }
-    return json(feed)
-  })
+  .get('/api/feed', requireAuth, async (request, env) => json(await buildFeed(env, (request as AuthedRequest).user.id)))
 
   // ---- everyone ----
-  // The newest things across every desktop, for the public room at /everyone. It fans
+  // The newest clumps across every desktop, for the public room at /everyone. It fans
   // out to every board, so the answer is cached for a minute per edge location.
   .get('/api/everyone', async (request, env, ctx) => {
     const cache = caches.default
     const key = new Request(new URL('/api/everyone', request.url).toString())
     const hit = await cache.match(key)
     if (hit) return hit
-
-    const d = db(env)
-    const users = (await d.listUsers()).filter((u) => u.handle).slice(0, EVERYONE_MAX_BOARDS)
-    const now = Date.now()
-    const since = now - FEED_WINDOW_MS
-    const results = await Promise.all(
-      users.map(async (u) => {
-        const stub = board(env, u.id)
-        try {
-          const [recent, summary] = await Promise.all([stub.recentGroups(since, EVERYONE_PER_BOARD, { gap: ROOM_GAP }), stub.summary()])
-          return { recent, summary }
-        } catch (e) {
-          console.warn('everyone: board unavailable', u.id, e)
-          return { recent: [] as EveryoneGroup[], summary: { liveItems: 0, lastActivityAt: null as number | null } }
-        }
-      })
-    )
-    // only what the page can draw: the record itself travels, and big drawings do not
-    const groups = results
-      .flatMap((r) => r.recent)
-      .map((g) => ({ ...g, items: g.items.filter((i) => i.record) }))
-      .filter((g) => g.items.length)
-      .sort((a, b) => b.editedAt - a.editedAt)
-      .slice(0, EVERYONE_GROUPS)
-    const ids = new Set<string>()
-    for (const g of groups) {
-      ids.add(g.boardId)
-      for (const i of g.items) ids.add(i.meta.by)
-    }
-    const people: Person[] = (await d.usersByIds([...ids])).map(toPerson)
-    const payload: Everyone = {
-      groups,
-      people,
-      counts: {
-        desktops: users.length,
-        active: results.filter((r) => r.summary.lastActivityAt !== null && r.summary.lastActivityAt >= since).length,
-        things: results.reduce((n, r) => n + r.summary.liveItems, 0),
-      },
-      builtAt: now,
-    }
-    const res = new Response(JSON.stringify(payload), {
-      headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${EVERYONE_TTL_S}` },
+    const res = new Response(JSON.stringify(await buildEveryone(env)), {
+      headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${EVERYONE_TTL_S}`, 'access-control-allow-origin': '*' },
     })
     ctx.waitUntil(cache.put(key, res.clone()))
     return res
@@ -391,7 +317,9 @@ const router = AutoRouter<IRequest, Args>({
   .get('/api/connect/:handle', async (request, env) => {
     const owner = await resolveHandle(env, request.params.handle)
     if (!owner) return error(404, 'No such desktop')
-    const user = await getSessionUser(request, env)
+    const auth = await getAuth(request, env)
+    // a token writes to its own desktop only: anywhere else it is a visitor looking on
+    const user = auth && (!auth.viaToken || auth.user.id === owner.id) ? auth.user : null
     const headers = new Headers(request.headers)
     headers.set(OWNER_HEADER, owner.id)
     if (user) headers.set(USER_HEADER, user.id)
@@ -404,6 +332,12 @@ const router = AutoRouter<IRequest, Args>({
   .get('/api/uploads/:uploadId', handleAssetDownload)
 
   .all('/api/*', () => error(404, 'Not found'))
+
+  // ---- MCP ----
+  // The same token, as a pasteable link: an MCP server for Claude (and friends) that reads
+  // everything and writes to the token's own desktop. `/mcp` with a bearer header works too.
+  .all('/mcp/:token', (request, env, ctx) => handleMcp(request, env, ctx, request.params.token))
+  .all('/mcp', (request, env, ctx) => handleMcp(request, env, ctx, null))
 
   // ---- app shell for desktop addresses ----
   // "/@handle" never reaches the asset router (it would 307 to "/%40handle"):

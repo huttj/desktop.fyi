@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
-import { CLUSTER_GAP, approxBounds, centreOf, clumpGroups } from '../shared/bounds'
+import { approxBounds, centreOf, clumpGroups, type Reach } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
 import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, SPREAD_CAP, canSee, falloff, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
@@ -525,13 +525,14 @@ export class BoardDurableObject extends DurableObject<Env> {
   }
 
   /** Sends the accepted change to everyone who may see each record, and the bookkeeping to all. */
-  private relay(result: RelayResult, sender: WebSocket) {
+  /** `sender` is null for a change that came through the API rather than a window. */
+  private relay(result: RelayResult, sender: WebSocket | null) {
     const { accepted, restore, drop, metas, now } = result
-    if (drop.length) {
+    if (sender && drop.length) {
       this.send(sender, { type: 'diff', diff: { put: {}, removed: drop } })
       this.send(sender, { type: 'rejected', reason: 'That picture has no image, so it was not kept' })
     }
-    if (restore.length) {
+    if (sender && restore.length) {
       const put: Record<string, BoardRecord> = {}
       for (const rec of restore) put[rec.id] = rec
       this.send(sender, { type: 'diff', diff: { put, removed: [] } })
@@ -641,6 +642,27 @@ export class BoardDurableObject extends DurableObject<Env> {
   // ---- RPC (the worker calls these directly) ----
 
   /**
+   * A change made through the API (a token, the MCP tools) rather than a
+   * window: applied as `userId` with the same rules, relayed to every window.
+   * Returns what landed and what was refused (not theirs, or a picture with no image).
+   */
+  async applyAs(rawDiff: unknown, userId: string, requestedLayer?: string): Promise<{ accepted: WireDiff; rejected: string[] }> {
+    const diff = sanitizeDiff(rawDiff)
+    if (!diff) throw new Error('Malformed change: expected { put: { id: record }, removed: [ids] }')
+    const layer = this.resolveLayer(userId, requestedLayer)
+    if (!layer) throw new Error('You can only add to your own layer here')
+    const result = this.applyDiff(diff, userId, layer)
+    this.relay(result, null)
+    void this.ensureAlarm()
+    return { accepted: result.accepted, rejected: [...result.drop, ...result.restore.map((r) => r.id)] }
+  }
+
+  /** Everything visible to anyone right now, with records: the whole desktop as a visitor sees it. */
+  async allVisible(): Promise<FeedItem[]> {
+    return (await this.recentGroups(0, 100000, { keepHighlights: true })).flatMap((g) => g.items)
+  }
+
+  /**
    * What the feed shows of this desktop: every clump with something made or
    * touched since `since`, whole, so a couple of new things beside an old
    * column bring the column along. Newest clump first, newest thing first
@@ -654,11 +676,11 @@ export class BoardDurableObject extends DurableObject<Env> {
    * Recently touched clumps, whole: a highlight brings the words under it,
    * however old; a caption brings its picture; a new note beside a column
    * brings the column. The clump rule is shared/bounds', with the feed's reach
-   * unless `gap` says otherwise (the room reaches further). For the room, a
-   * clump made only of highlighter strokes is nothing to look at and is left
-   * out. Newest first, by the newest member; members newest first, all of them.
+   * unless `reach` says otherwise (the room wants only what touches). For the
+   * room, a clump made only of highlighter strokes is nothing to look at and is
+   * left out. Newest first, by the newest member; members newest first, all of them.
    */
-  async recentGroups(since: number, limit = 40, { keepHighlights = false, gap = CLUSTER_GAP } = {}): Promise<EveryoneGroup[]> {
+  async recentGroups(since: number, limit = 40, { keepHighlights = false, reach }: { keepHighlights?: boolean; reach?: Reach } = {}): Promise<EveryoneGroup[]> {
     const now = Date.now()
     const rows = this.sql.exec<Row>("SELECT * FROM records WHERE state = 'live' AND is_asset = 0 ORDER BY edited_at DESC LIMIT 2000").toArray()
     const visible: Array<{ row: Row; meta: ItemMeta; age: number; rec: ShapeRecord }> = []
@@ -668,7 +690,7 @@ export class BoardDurableObject extends DurableObject<Env> {
       if (age >= HIDE_AT) continue
       visible.push({ row, meta, age, rec: JSON.parse(row.data) as ShapeRecord })
     }
-    const roots = clumpGroups(visible.map((v) => approxBounds(v.rec)), gap)
+    const roots = clumpGroups(visible.map((v) => approxBounds(v.rec)), reach)
     const byRoot = new Map<number, typeof visible>()
     visible.forEach((v, i) => {
       const list = byRoot.get(roots[i]!) ?? []

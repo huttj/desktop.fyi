@@ -1,4 +1,4 @@
-import type { Person, UserSummary } from '../shared/types'
+import type { ApiToken, Person, UserSummary } from '../shared/types'
 
 /** D1 holds what has to be queried across people; boards live in their own Durable Objects. */
 
@@ -127,6 +127,50 @@ export class Db {
       this.d1.prepare('DELETE FROM follows WHERE follower_id = ? OR followee_id = ?').bind(id, id),
       this.d1.prepare('DELETE FROM users WHERE id = ?').bind(id),
     ])
+  }
+
+  // ---- personal access tokens ----
+
+  /** Mints a token; the secret is returned once and only its hash is kept. */
+  async createApiToken(userId: string, label: string): Promise<{ token: string; row: ApiToken }> {
+    const token = `dfyi_${randomId(24)}`
+    const hash = await sha256(token)
+    const now = Date.now()
+    const prefix = token.slice(0, 10)
+    await this.d1
+      .prepare('INSERT INTO api_tokens (token_hash, user_id, label, prefix, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(hash, userId, label, prefix, now)
+      .run()
+    return { token, row: { id: hash, label, prefix, createdAt: now, lastUsedAt: null } }
+  }
+
+  async listApiTokens(userId: string): Promise<ApiToken[]> {
+    const { results } = await this.d1
+      .prepare('SELECT token_hash, label, prefix, created_at, last_used_at FROM api_tokens WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC')
+      .bind(userId)
+      .all<{ token_hash: string; label: string; prefix: string; created_at: number; last_used_at: number | null }>()
+    return results.map((r) => ({ id: r.token_hash, label: r.label, prefix: r.prefix, createdAt: r.created_at, lastUsedAt: r.last_used_at }))
+  }
+
+  async revokeApiToken(userId: string, id: string): Promise<boolean> {
+    const res = await this.d1.prepare('UPDATE api_tokens SET revoked_at = ? WHERE token_hash = ? AND user_id = ? AND revoked_at IS NULL').bind(Date.now(), id, userId).run()
+    return !!res.meta.changes
+  }
+
+  /** The person a token acts as, or null when it is unknown or revoked. Notes the use now and then. */
+  async userByApiToken(token: string): Promise<UserRow | null> {
+    const hash = await sha256(token)
+    const row = await this.d1
+      .prepare('SELECT u.*, t.last_used_at AS token_used_at FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ? AND t.revoked_at IS NULL')
+      .bind(hash)
+      .first<UserRow & { token_used_at: number | null }>()
+    if (!row) return null
+    const { token_used_at, ...user } = row
+    const now = Date.now()
+    if (!token_used_at || now - token_used_at > 10 * 60 * 1000) {
+      await this.d1.prepare('UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?').bind(now, hash).run()
+    }
+    return user
   }
 
   // ---- login tokens ----

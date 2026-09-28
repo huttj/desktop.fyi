@@ -123,6 +123,15 @@ export interface Everyone {
   builtAt: number
 }
 
+/** A personal access token as listed: never the secret itself, only its first characters. */
+export interface ApiToken {
+  id: string
+  label: string
+  prefix: string
+  createdAt: number
+  lastUsedAt: number | null
+}
+
 export interface ApiError {
   error: string
 }
