@@ -4,7 +4,7 @@
 // Dependency-free ESM: runs in any modern browser as-is, no build step.
 
 import { Store, newId } from './store.js'
-import { themeOf, SIZES, FONT_SIZES, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR, FADE_TONE, fadedTheme } from './palette.js'
+import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR, FADE_TONE, fadedTheme } from './palette.js'
 import {
   lineHeads, typeForHeads,
   localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits, tintedImage,
