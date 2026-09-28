@@ -142,6 +142,8 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
         }
       }
     }, 'remote')
+    // Open on the whole room; zooming in to read is the visitor's move.
+    if (editor && laid.length) editor.fitContent({ maxZoom: 1 })
     editor?.requestRender()
   }, [store, laid, editor])
 
@@ -157,10 +159,9 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
     ed.shapeAlpha = (s) => alphaAt(ages.current.get(s.id) ?? 0)
     ed.shapeFade = (s) => fadeAt(ages.current.get(s.id) ?? 0)
     ed.openLink = openUrl
-    // The newest sits at the origin: start there, at a zoom that shows a few clumps and still reads.
+    // Until the room arrives, the newest's spot (the origin) sits in the middle.
     const { w, h } = ed.viewSize()
-    const z = w < 560 ? 0.35 : 0.5
-    ed.setCamera({ x: w / (2 * z), y: (h / 2 + 20) / z, z })
+    ed.setCamera({ x: w / 2, y: h / 2, z: 1 })
     // A tap (not a drag) on a thing visits it on its desktop; ⌘/ctrl or middle click opens a tab.
     let press: { x: number; y: number; at: number; newTab: boolean } | null = null
     ed.container.addEventListener('pointerdown', (e) => {
@@ -232,7 +233,7 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
         )}
       </div>
       {data && laid.length === 0 && <div className="Notice">Nothing has been made this week. Be the first.</div>}
-      {data && laid.length > 0 && !welcoming && <div className="World-hint Muted">The newest things sit in the middle. Drag to look around, zoom to read; click anything to visit its desktop.</div>}
+      {data && laid.length > 0 && !welcoming && <div className="World-hint Muted">The newest things sit in the middle. Zoom in to read, drag to look around; click anything to visit its desktop.</div>}
       {welcoming && (
         <div className="World-welcome" onPointerDown={(e) => e.target === e.currentTarget && setWelcoming(false)}>
           <Landing onDismiss={() => setWelcoming(false)} />
