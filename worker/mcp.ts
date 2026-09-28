@@ -1,6 +1,7 @@
-import { COLOR_IDS, DASH_IDS, FILL_IDS, GEO_IDS, type BoardRecord, type ShapeRecord } from '@quickdrawjs/core'
+import { COLOR_IDS, DASH_IDS, FILL_IDS, GEO_IDS, rebindArrow, type BoardRecord, type ShapeRecord } from '@quickdrawjs/core'
 import type { IRequest } from 'itty-router'
 import { approxBounds, gapBetween, type Box } from '../shared/bounds'
+import { layoutGraph, type GraphSpec } from '../shared/graph'
 import { HANDLE_RE } from '../shared/handle'
 import type { WireDiff } from '../shared/protocol'
 import type { FeedItem } from '../shared/types'
@@ -140,6 +141,56 @@ const TOOLS = [
       required: ['w', 'h'],
     },
   },
+  {
+    name: 'layout_graph',
+    description:
+      'Lay out a zoned diagram properly and put it on this person\'s desktop: zones side by side (wrapping to rows), each a dashed titled box with its nodes in a grid, every node a box sized to fit its label; edges become arrows tied to both ends (they follow their nodes) and settled on the boxes\' edges, with captions beside the line where it is clear, else in a legend under the diagram. Placed in empty space near what is there unless `at` is given. Returns the node name → id map and the bounds, or the records without placing when place:false.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        zones: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              color: { type: 'string' },
+              columns: { type: 'number' },
+              nodes: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, geo: { type: 'string' }, color: { type: 'string' } }, required: ['id', 'label'] } },
+            },
+            required: ['nodes'],
+          },
+        },
+        edges: {
+          type: 'array',
+          items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, label: { type: 'string' }, color: { type: 'string' }, dashed: { type: 'boolean' }, head: { type: 'string', enum: ['arrow', 'none', 'both'] } }, required: ['from', 'to'] },
+        },
+        caption: { type: 'string' },
+        maxWidth: { type: 'number', description: 'How wide a row of zones may run before wrapping (default 1600)' },
+        at: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, description: 'Top-left; default: an empty spot near the existing things' },
+        place: { type: 'boolean', description: 'Put it on the desktop (default true); false returns the records instead' },
+      },
+      required: ['zones'],
+    },
+  },
+  {
+    name: 'connect_items',
+    description:
+      'Draw an arrow from one thing to another on this person\'s desktop, tied to both so it follows them when they move, with an optional caption set off to the side. This is how to connect boxes: an arrow merely drawn near them is not connected.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Record id' },
+        to: { type: 'string', description: 'Record id' },
+        label: { type: 'string' },
+        color: { type: 'string' },
+        dashed: { type: 'boolean' },
+        head: { type: 'string', enum: ['arrow', 'none', 'both'] },
+      },
+      required: ['from', 'to'],
+    },
+  },
   { name: 'record_reference', description: 'What Quickdraw records look like, by type, with the colour, size, font and geometry names, and how big things come out: read before put_items.', inputSchema: { type: 'object', properties: {} } },
   { name: 'dev_setup', description: 'How to run the desktop.fyi client locally against the real site with this key, to work on the UI with real data.', inputSchema: { type: 'object', properties: {} } },
 ]
@@ -199,6 +250,11 @@ How big things come out (page units, pixels at zoom 1):
 Plan a layout with measure_items, claim spots with find_space, and read the bounds and overlaps that put_items returns.
 Things you place near each other are one clump to the feed and the room; leave a little air (40 or more) between
 things that should read apart.
+
+Diagrams: use layout_graph for anything with zones, nodes and edges; it sizes boxes to their labels, spaces them,
+ties the arrows and keeps captions off the lines. To join two things already on the desktop use connect_items.
+An arrow drawn between two boxes without startBind / endBind is not connected: it stays put when they move.
+Keep node labels short (a name, up to about five words); explanations go in a text block beside the diagram.
 
 Freshness: a thing ages a day per day; it fades from day 1, hides at day 3 (only its author sees it),
 and is archived at day 7. Editing it, or adding something next to it, keeps it (and its neighbours) fresh;
@@ -397,17 +453,8 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
       const near = args.near && typeof args.near === 'object' ? (args.near as { x?: number; y?: number }) : {}
       const cx = Number.isFinite(Number(near.x)) ? Number(near.x) : extent ? extent.x + extent.w / 2 : 0
       const cy = Number.isFinite(Number(near.y)) ? Number(near.y) : extent ? extent.y + extent.h / 2 : 0
-      const clear = (x: number, y: number) => taken.every((b) => gapBetween({ x, y, w, h }, b) >= gap)
-      const step = 24
-      let r = 0, t = 0
-      for (let n = 0; n < 200000; n++) {
-        const x = cx + r * Math.cos(t) - w / 2, y = cy + r * Math.sin(t) - h / 2
-        if (clear(x, y)) return text({ x: Math.round(x), y: Math.round(y), w, h, gap })
-        const dt = step / Math.max(r, step)
-        t += dt
-        r += (step * dt) / (Math.PI * 2)
-      }
-      throw new Error('No room found near there')
+      const spot = findSpace(taken, w, h, gap, { x: cx, y: cy })
+      return text({ ...spot, w, h, gap })
     }
     case 'update_items': {
       const updates = Array.isArray(args.updates) ? (args.updates as Array<Record<string, unknown>>) : []
@@ -492,6 +539,56 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
       await d.updateProfile(user.id, patch)
       return text(toMe(env, { ...user, ...patch }))
     }
+    case 'layout_graph': {
+      const spec = args as unknown as GraphSpec & { at?: { x: number; y: number }; place?: boolean }
+      if (!Array.isArray(spec.zones) || !spec.zones.length) throw new Error('Pass zones, each with nodes')
+      const mintId = (kind: string) => `${kind === 'group' ? 'group' : 'shape'}:${randomId(9)}`
+      // size it at the origin, find room for that size, then lay it out there for real
+      const probe = layoutGraph(spec, { x: 0, y: 0 }, () => 'probe')
+      let at = spec.at && Number.isFinite(spec.at.x) && Number.isFinite(spec.at.y) ? spec.at : null
+      if (!at) {
+        const all = ((await mine().itemsFor(user.id)) as FeedItem[]).filter((i) => i.record).map((i) => approxBounds(i.record as BoardRecord))
+        at = findSpace(all, probe.bounds.w, probe.bounds.h, 40, null)
+      }
+      // stack above whatever is there
+      const topZ = ((await mine().itemsFor(user.id)) as FeedItem[]).reduce((m, i) => Math.max(m, Number((i.record as { z?: number } | undefined)?.z ?? 0)), 0)
+      const laid = layoutGraph(spec, at, mintId, topZ + 1)
+      const byId = new Map(laid.records.map((r) => [r.id, r]))
+      const records = settleArrows(laid.records, (id) => byId.get(id))
+      if (spec.place === false) return text({ records, nodeIds: laid.nodeIds, bounds: laid.bounds })
+      const put: Record<string, BoardRecord> = {}
+      for (const r of records) put[r.id] = r
+      const result = await apply({ put, removed: [] }, user.id, user.id)
+      return text({ placed: Object.keys(result.accepted.put).length, rejected: result.rejected, nodeIds: laid.nodeIds, bounds: laid.bounds, desktop: here })
+    }
+    case 'connect_items': {
+      const from = String(args.from ?? ''), to = String(args.to ?? '')
+      const a = from ? ((await mine().recordOf(from)) as { record: BoardRecord } | null) : null
+      const b = to ? ((await mine().recordOf(to)) as { record: BoardRecord } | null) : null
+      if (!a || !b) throw new Error('Both from and to must be things on your desktop')
+      const ab = approxBounds(a.record), bb = approxBounds(b.record)
+      const ax = ab.x + ab.w / 2, ay = ab.y + ab.h / 2, bx = bb.x + bb.w / 2, by = bb.y + bb.h / 2
+      const head = (args.head as string) ?? 'arrow'
+      const color = typeof args.color === 'string' ? args.color : 'black'
+      const arrowId = `shape:${randomId(9)}`
+      const put: Record<string, BoardRecord> = {
+        [arrowId]: {
+          id: arrowId, typeName: 'shape', type: head === 'none' ? 'line' : 'arrow', x: ax, y: ay, rot: 0, z: Math.max(Number((a.record as { z?: number }).z ?? 0), Number((b.record as { z?: number }).z ?? 0)) + 1,
+          props: { dx: bx - ax, dy: by - ay, bend: 0, headStart: head === 'both' ? 'arrow' : 'none', headEnd: head === 'none' ? 'none' : 'arrow', color, size: 's', dash: args.dashed ? 'dashed' : 'solid', startBind: { id: from, nx: 0.5, ny: 0.5 }, endBind: { id: to, nx: 0.5, ny: 0.5 } },
+        } as unknown as BoardRecord,
+      }
+      if (typeof args.label === 'string' && args.label.trim()) {
+        const len = Math.hypot(bx - ax, by - ay) || 1
+        const nx = -(by - ay) / len, ny = (bx - ax) / len
+        const w = Math.min(240, args.label.length * 11 + 8)
+        const labelId = `shape:${randomId(9)}`
+        put[labelId] = { id: labelId, typeName: 'shape', type: 'text', x: (ax + bx) / 2 + nx * 18 - w / 2, y: (ay + by) / 2 + ny * 18 - 13, rot: 0, z: 1, props: { text: args.label.trim(), color, size: 's', font: 'sans', align: 'middle', autosize: false, w, scale: 1 } } as unknown as BoardRecord
+      }
+      const targets = new Map<string, BoardRecord>([[from, a.record], [to, b.record]])
+      for (const r of settleArrows(Object.values(put), (id) => targets.get(id))) put[r.id] = r
+      const result = await apply({ put, removed: [] }, user.id, user.id)
+      return text({ ...result, arrow: arrowId, desktop: here })
+    }
     case 'record_reference':
       return text(RECORD_REFERENCE)
     case 'dev_setup':
@@ -504,4 +601,41 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
 function union(a: Box, b: Box): Box {
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y)
   return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y }
+}
+
+/**
+ * Bound arrows, settled: their ends moved onto the outlines of the shapes they
+ * are tied to, the way the board does when a shape moves, so they look right
+ * the moment they land. `lookup` finds a target by id (the new records, then
+ * the desktop). A target the engine cannot measure here (text) is left as drawn.
+ */
+function settleArrows(records: BoardRecord[], lookup: (id: string) => BoardRecord | undefined): BoardRecord[] {
+  const store = { get: lookup }
+  return records.map((r) => {
+    if (r.typeName !== 'shape' || (r.type !== 'arrow' && r.type !== 'line')) return r
+    try {
+      return rebindArrow(r as ShapeRecord, store as never) as unknown as BoardRecord
+    } catch {
+      return r
+    }
+  })
+}
+
+/** The nearest top-left to `near` (default: the middle of what is taken) where a w by h box clears everything by `gap`. */
+function findSpace(taken: Box[], w: number, h: number, gap: number, near: { x: number; y: number } | null): { x: number; y: number } {
+  let extent: Box | null = null
+  for (const b of taken) extent = extent ? union(extent, b) : { ...b }
+  const cx = near ? near.x : extent ? extent.x + extent.w / 2 : 0
+  const cy = near ? near.y : extent ? extent.y + extent.h / 2 : 0
+  const clear = (x: number, y: number) => taken.every((b) => gapBetween({ x, y, w, h }, b) >= gap)
+  const step = 24
+  let r = 0, t = 0
+  for (let n = 0; n < 200000; n++) {
+    const x = cx + r * Math.cos(t) - w / 2, y = cy + r * Math.sin(t) - h / 2
+    if (clear(x, y)) return { x: Math.round(x), y: Math.round(y) }
+    const dt = step / Math.max(r, step)
+    t += dt
+    r += (step * dt) / (Math.PI * 2)
+  }
+  throw new Error('No room found near there')
 }
