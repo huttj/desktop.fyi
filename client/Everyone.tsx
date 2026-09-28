@@ -184,8 +184,12 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
         }
       }
     }, 'remote')
-    // Open on the whole room; zooming in to read is the visitor's move.
-    if (editor && laid.length) editor.fitContent({ maxZoom: 1 })
+    // Open a step past the fit, so the room spills off the edges and reads as a crowd rather than a chart.
+    if (editor && laid.length) {
+      editor.fitContent({ maxZoom: 1 })
+      const { w, h } = editor.viewSize()
+      editor.zoomAt(w / 2, h / 2, 1.7)
+    }
     editor?.requestRender()
   }, [store, laid, editor])
 
