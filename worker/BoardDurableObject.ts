@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
-import { approxBounds, centreOf, clumpGroups } from '../shared/bounds'
+import { CLUSTER_GAP, approxBounds, centreOf, clumpGroups } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
 import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, SPREAD_CAP, canSee, falloff, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
@@ -647,17 +647,18 @@ export class BoardDurableObject extends DurableObject<Env> {
    * within it; at most `limit` clumps.
    */
   async activity(since: number, limit = 40): Promise<FeedItem[]> {
-    return (await this.recentGroups(since, limit, 60, { keepHighlights: true })).flatMap((g) => g.items)
+    return (await this.recentGroups(since, limit, { keepHighlights: true })).flatMap((g) => g.items)
   }
 
   /**
    * Recently touched clumps, whole: a highlight brings the words under it,
    * however old; a caption brings its picture; a new note beside a column
-   * brings the column. The clump rule is the feed's (shared/bounds). For the
-   * room, a clump made only of highlighter strokes is nothing to look at and is
-   * left out. Newest first, by the newest member.
+   * brings the column. The clump rule is shared/bounds', with the feed's reach
+   * unless `gap` says otherwise (the room reaches further). For the room, a
+   * clump made only of highlighter strokes is nothing to look at and is left
+   * out. Newest first, by the newest member; members newest first, all of them.
    */
-  async recentGroups(since: number, limit = 40, membersCap = 60, { keepHighlights = false } = {}): Promise<EveryoneGroup[]> {
+  async recentGroups(since: number, limit = 40, { keepHighlights = false, gap = CLUSTER_GAP } = {}): Promise<EveryoneGroup[]> {
     const now = Date.now()
     const rows = this.sql.exec<Row>("SELECT * FROM records WHERE state = 'live' AND is_asset = 0 ORDER BY edited_at DESC LIMIT 2000").toArray()
     const visible: Array<{ row: Row; meta: ItemMeta; age: number; rec: ShapeRecord }> = []
@@ -667,7 +668,7 @@ export class BoardDurableObject extends DurableObject<Env> {
       if (age >= HIDE_AT) continue
       visible.push({ row, meta, age, rec: JSON.parse(row.data) as ShapeRecord })
     }
-    const roots = clumpGroups(visible.map((v) => approxBounds(v.rec)))
+    const roots = clumpGroups(visible.map((v) => approxBounds(v.rec)), gap)
     const byRoot = new Map<number, typeof visible>()
     visible.forEach((v, i) => {
       const list = byRoot.get(roots[i]!) ?? []
@@ -680,12 +681,11 @@ export class BoardDurableObject extends DurableObject<Env> {
       const newest = members[0]!
       if (newest.row.edited_at < since) continue
       if (!keepHighlights && members.every((m) => m.rec.type === 'highlight')) continue
-      const kept = members.slice(0, membersCap)
       out.push({
         boardId: this.owner,
         editedAt: newest.row.edited_at,
-        age: Math.min(...kept.map((m) => m.age)),
-        items: kept.map((m) => this.feedItem(m.row, m.meta, m.age)),
+        age: Math.min(...members.map((m) => m.age)),
+        items: members.map((m) => this.feedItem(m.row, m.meta, m.age)),
       })
     }
     out.sort((a, b) => b.editedAt - a.editedAt)

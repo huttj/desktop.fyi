@@ -4,6 +4,7 @@ import { clearSessionCookie, getSessionUser, isAdminEmail, isLocal, publicOrigin
 import { BoardDurableObject, OWNER_HEADER, USER_HEADER } from './BoardDurableObject'
 import { Db, HANDLE_RE, RESERVED_HANDLES, toPerson, toSummary, type UserRow } from './db'
 import { sendMagicLink } from './email'
+import { ROOM_GAP } from '../shared/bounds'
 import { DAY_MS } from '../shared/freshness'
 import type { DesktopStats, Everyone, EveryoneGroup, Feed, FeedItem, Me, Person, PlacedItem, Profile, Revision } from '../shared/types'
 
@@ -327,7 +328,7 @@ const router = AutoRouter<IRequest, Args>({
       users.map(async (u) => {
         const stub = board(env, u.id)
         try {
-          const [recent, summary] = await Promise.all([stub.recentGroups(since, EVERYONE_PER_BOARD), stub.summary()])
+          const [recent, summary] = await Promise.all([stub.recentGroups(since, EVERYONE_PER_BOARD, { gap: ROOM_GAP }), stub.summary()])
           return { recent, summary }
         } catch (e) {
           console.warn('everyone: board unavailable', u.id, e)

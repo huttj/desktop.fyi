@@ -1,44 +1,35 @@
-import type { AssetRecord, ShapeRecord } from '@quickdrawjs/core'
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
-import { alphaAt } from '../shared/freshness'
+import type { AssetRecord, Editor, ShapeRecord } from '@quickdrawjs/core'
+import { Quickdraw, openUrl, useQuickdrawStore } from '@quickdrawjs/react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent } from 'react'
+import type { Box } from '../shared/bounds'
+import { alphaAt, fadeAt } from '../shared/freshness'
 import type { Everyone as EveryoneData, EveryoneGroup, Me } from '../shared/types'
 import { api, ApiError } from './api'
 import { Avatar } from './Avatar'
 import { Landing } from './Landing'
+import { navigate } from './navigate'
 import { nameOf, relativeTime, type People } from './people'
-import { RoomMap } from './RoomMap'
-import { renderThumb, unionBounds } from './thumb'
+import { unionBounds } from './thumb'
 import { itemsLink } from './viewLink'
 
 /**
- * The public room: the newest things on every desktop, scattered over one
- * shared surface, newest at the centre. Each is drawn small, the way it sits
- * on its own desktop, and leads there. Things that touch on their desktop
- * arrive together, so a highlight comes with its words. Nobody's things are
- * hidden here that are not hidden there: every desktop is public already.
- * Signed out, it is also the front door: the welcome card sits over it.
+ * The public room: the newest clumps from every desktop, laid out at true
+ * size on one Quickdraw board, newest at the centre. Things draw, age and
+ * fade exactly as on their own desktops; a click on one visits it there.
+ * Nobody's things are hidden here that are not hidden there: every desktop
+ * is public already. Signed out, it is also the front door: the welcome
+ * card sits over it.
  */
 
-interface Placed {
+interface Laid {
   group: EveryoneGroup
-  records: ShapeRecord[]
-  assets: AssetRecord[]
-  x: number
-  y: number
-  w: number
-  h: number
+  /** Where the clump sits in the room (page units), after its records were shifted. */
+  box: Box
 }
 
-/** Things draw at most this fraction of life size, inside this box; the spiral spaces them about this far apart. */
-const MINIATURE = 0.6
-const CARD_MAX_W = 200
-const CARD_MAX_H = 150
-const CARD_MIN = 56
-/** renderThumb keeps this much air around a record; the card grows by it so the record itself lands at MINIATURE. */
-const THUMB_MARGIN = 12
-const SPACING = 112
 const GOLDEN = Math.PI * (3 - Math.sqrt(5))
-const GAP = 14
+/** Room between clumps, page units. */
+const GAP = 120
 
 function hash(s: string) {
   let h = 2166136261
@@ -46,29 +37,32 @@ function hash(s: string) {
   return (h >>> 0) / 4294967296
 }
 
-/** Newest at the centre, spiralling out; a nudge apart wherever two still overlap. */
-function scatter(groups: EveryoneGroup[]): Placed[] {
-  const placed: Placed[] = []
-  groups.forEach((group, i) => {
+/**
+ * Newest at the centre, spiralling out by area, so big clumps take the room
+ * they need; then a nudge apart wherever two still overlap. Returns each
+ * clump's box in the room and the shift that puts its records there.
+ */
+function layout(groups: EveryoneGroup[]): Array<Laid & { dx: number; dy: number }> {
+  const boxes: Array<{ x: number; y: number; w: number; h: number; ox: number; oy: number; group: EveryoneGroup }> = []
+  let area = 0
+  for (const group of groups) {
     const records = group.items.map((it) => it.record as ShapeRecord | undefined).filter((r): r is ShapeRecord => !!r)
-    const assets = group.items.map((it) => it.asset as AssetRecord | undefined).filter((a): a is AssetRecord => !!a)
     const b = unionBounds(records)
-    if (!b) return
-    const scale = Math.min(MINIATURE, (CARD_MAX_W - 2 * THUMB_MARGIN) / Math.max(b.w, 1), (CARD_MAX_H - 2 * THUMB_MARGIN) / Math.max(b.h, 1))
-    const w = Math.max(CARD_MIN, b.w * scale + 2 * THUMB_MARGIN)
-    const h = Math.max(CARD_MIN, b.h * scale + 2 * THUMB_MARGIN)
-    const r = SPACING * Math.sqrt(i)
+    if (!b) continue
+    const i = boxes.length
+    area += (b.w + GAP) * (b.h + GAP)
+    const r = i === 0 ? 0 : Math.sqrt(area / Math.PI)
     const t = i * GOLDEN
     const key = group.items[0]!.id
-    const jx = (hash(key) - 0.5) * 40
-    const jy = (hash(key + '/y') - 0.5) * 40
-    placed.push({ group, records, assets, x: r * Math.cos(t) + jx - w / 2, y: r * Math.sin(t) + jy - h / 2, w, h })
-  })
-  for (let pass = 0; pass < 40; pass++) {
+    const jx = (hash(key) - 0.5) * GAP
+    const jy = (hash(key + '/y') - 0.5) * GAP
+    boxes.push({ x: r * Math.cos(t) + jx - b.w / 2, y: r * Math.sin(t) + jy - b.h / 2, w: b.w, h: b.h, ox: b.x, oy: b.y, group })
+  }
+  for (let pass = 0; pass < 300; pass++) {
     let moved = false
-    for (let i = 0; i < placed.length; i++) {
-      for (let j = i + 1; j < placed.length; j++) {
-        const a = placed[i]!, b = placed[j]!
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]!, b = boxes[j]!
         const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + GAP
         const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + GAP
         if (ox <= 0 || oy <= 0) continue
@@ -88,22 +82,19 @@ function scatter(groups: EveryoneGroup[]): Placed[] {
     }
     if (!moved) break
   }
-  return placed
+  return boxes.map((b) => ({ group: b.group, box: { x: b.x, y: b.y, w: b.w, h: b.h }, dx: b.x - b.ox, dy: b.y - b.oy }))
 }
 
-const ZOOM_MIN = 0.35
-const ZOOM_MAX = 2
-
 export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boolean }) {
+  const store = useQuickdrawStore()
   const [data, setData] = useState<EveryoneData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
   const [welcoming, setWelcoming] = useState(welcome)
-  const surface = useRef<HTMLDivElement>(null)
-  const [camera, setCamera] = useState({ x: 0, y: 0, z: 1 })
-  const drag = useRef<{ id: number; x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null)
-  /** Whether the press that just ended was a pan (so the click it produces is not a visit). */
-  const panned = useRef(false)
+  const [editor, setEditor] = useState<Editor | null>(null)
+  /** Each thing's age and clump, for the render hooks and for a click. */
+  const ages = useRef(new Map<string, number>())
+  const clumpOf = useRef(new Map<string, Laid>())
 
   useEffect(() => {
     api
@@ -121,121 +112,97 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
 
   useEffect(() => {
     if (!welcoming) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setWelcoming(false)
+    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && setWelcoming(false)
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [welcoming])
 
-  // The centre of the room starts in the middle of the window, a touch below the header.
-  const [viewport, setViewport] = useState({ w: window.innerWidth, h: window.innerHeight })
-  useEffect(() => {
-    const el = surface.current
-    if (!el) return
-    const fit = () => {
-      setViewport({ w: el.clientWidth, h: el.clientHeight })
-      setCamera((c) => ({ ...c, x: el.clientWidth / 2, y: el.clientHeight / 2 + 20, z: el.clientWidth < 560 ? 0.75 : c.z }))
-    }
-    fit()
-    window.addEventListener('resize', fit)
-    return () => window.removeEventListener('resize', fit)
-  }, [])
-
-  // Thumbnails redraw at the zoom's resolution once it settles: sharp zoomed in, light zoomed out.
-  const [resolution, setResolution] = useState(1)
-  useEffect(() => {
-    const t = window.setTimeout(() => setResolution(Math.min(ZOOM_MAX, Math.max(0.5, camera.z))), 200)
-    return () => clearTimeout(t)
-  }, [camera.z])
-
   const people: People = useMemo(() => new Map((data?.people ?? []).map((p) => [p.id, p])), [data])
-  const placed = useMemo(() => (data ? scatter(data.groups) : []), [data])
-  const boxes = useMemo(() => placed.map((p) => ({ x: p.x, y: p.y, w: p.w, h: p.h })), [placed])
 
-  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
-    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, cx: camera.x, cy: camera.y, moved: false }
-    panned.current = false
-  }
-  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = drag.current
-    if (!d || d.id !== e.pointerId) return
-    const dx = e.clientX - d.x, dy = e.clientY - d.y
-    if (!d.moved && Math.hypot(dx, dy) < 4) return
-    if (!d.moved) {
-      // Only now is it a pan: capturing any earlier would steal a plain click from the thing under it.
-      d.moved = true
-      panned.current = true
-      e.currentTarget.setPointerCapture(e.pointerId)
-    }
-    setCamera((c) => ({ ...c, x: d.cx + dx, y: d.cy + dy }))
-  }
-  const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (drag.current?.id === e.pointerId) drag.current = null
-  }
-  // A drag that moved is a pan, not a visit to whatever it ended over.
-  const onClickCapture = (e: ReactMouseEvent) => {
-    if (panned.current) e.preventDefault()
-  }
-  const onWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
-    if (e.ctrlKey || e.metaKey) {
-      const r = e.currentTarget.getBoundingClientRect()
-      const px = e.clientX - r.left, py = e.clientY - r.top
-      setCamera((c) => {
-        const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, c.z * Math.exp(-e.deltaY * 0.01)))
-        const k = z / c.z
-        return { x: px - (px - c.x) * k, y: py - (py - c.y) * k, z }
-      })
-    } else {
-      setCamera((c) => ({ ...c, x: c.x - e.deltaX, y: c.y - e.deltaY }))
-    }
-  }
-  // The page is locked against browser zoom; the wheel must not bubble into that or the pinch guard.
+  // Lay the clumps out and put every record on the board, shifted into place.
+  const laid = useMemo(() => (data ? layout(data.groups) : []), [data])
   useEffect(() => {
-    const el = surface.current
-    if (!el) return
-    const stop = (e: WheelEvent) => e.preventDefault()
-    el.addEventListener('wheel', stop, { passive: false })
-    return () => el.removeEventListener('wheel', stop)
+    ages.current.clear()
+    clumpOf.current.clear()
+    const seen = new Set<string>()
+    store.transact(() => {
+      for (const l of laid) {
+        for (const item of l.group.items) {
+          const rec = item.record as ShapeRecord | undefined
+          if (!rec || seen.has(rec.id)) continue
+          seen.add(rec.id)
+          ages.current.set(rec.id, item.age)
+          clumpOf.current.set(rec.id, l)
+          const asset = item.asset as AssetRecord | undefined
+          if (asset && !seen.has(asset.id)) {
+            seen.add(asset.id)
+            store.put(asset, 'remote')
+          }
+          store.put({ ...rec, x: rec.x + l.dx, y: rec.y + l.dy }, 'remote')
+        }
+      }
+    }, 'remote')
+    editor?.requestRender()
+  }, [store, laid, editor])
+
+  const onMount = useCallback((ed: Editor) => {
+    setEditor(ed)
+    if (import.meta.env.DEV) (window as unknown as { editor: Editor }).editor = ed
+    // Look only: the hand, and every shape locked. Things age as on their desktops.
+    ed.setTool('hand')
+    ed.on('tool', () => {
+      if (ed.tool !== 'hand') ed.setTool('hand')
+    })
+    ed.shapeLocked = () => true
+    ed.shapeAlpha = (s) => alphaAt(ages.current.get(s.id) ?? 0)
+    ed.shapeFade = (s) => fadeAt(ages.current.get(s.id) ?? 0)
+    ed.openLink = openUrl
+    // The newest sits at the origin: start there, at a zoom that shows a few clumps and still reads.
+    const { w, h } = ed.viewSize()
+    const z = w < 560 ? 0.35 : 0.5
+    ed.setCamera({ x: w / (2 * z), y: (h / 2 + 20) / z, z })
+    // A tap (not a drag) on a thing visits it on its desktop; ⌘/ctrl or middle click opens a tab.
+    let press: { x: number; y: number; at: number; newTab: boolean } | null = null
+    ed.container.addEventListener('pointerdown', (e) => {
+      press = { x: e.clientX, y: e.clientY, at: Date.now(), newTab: e.metaKey || e.ctrlKey || e.button === 1 }
+    }, true)
+    ed.container.addEventListener('pointerup', (e) => {
+      const p = press
+      press = null
+      if (!p || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4 || Date.now() - p.at > 700) return
+      const r = ed.container.getBoundingClientRect()
+      const pt = ed.screenToPage(e.clientX - r.left, e.clientY - r.top)
+      const hit = ed.hitTest(pt.x, pt.y, { inside: true })
+      const l = hit ? clumpOf.current.get(hit.id) : null
+      if (!l) return
+      const href = hrefOf(l, peopleRef.current)
+      if (!href) return
+      if (p.newTab) window.open(href, '_blank')
+      else navigate(href)
+    })
   }, [])
-  // ⌘/ctrl with +, - and 0 zoom the room about its middle (the browser's own zoom is off everywhere).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return
-      const step = e.key === '=' || e.key === '+' ? 1 : e.key === '-' || e.key === '_' ? -1 : e.key === '0' ? 0 : null
-      if (step === null) return
-      e.preventDefault()
-      const el = surface.current
-      if (!el) return
-      const px = el.clientWidth / 2, py = el.clientHeight / 2
-      setCamera((c) => {
-        const z = step === 0 ? 1 : Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, c.z * (step > 0 ? 1.25 : 0.8)))
-        const k = z / c.z
-        return { x: px - (px - c.x) * k, y: py - (py - c.y) * k, z }
-      })
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  const peopleRef = useRef(people)
+  peopleRef.current = people
+
+  // Not a place to draw: keys other than zoom, and paste or drop, stay out of the board.
+  const stop = (e: { stopPropagation(): void }) => e.stopPropagation()
+  const guards = {
+    onKeyDownCapture: (e: KeyboardEvent<HTMLDivElement>) => {
+      const meta = e.metaKey || e.ctrlKey
+      const zoom = (meta && ['=', '+', '-', '0'].includes(e.key)) || (e.shiftKey && ['1', '!', '0', ')'].includes(e.key))
+      if (!zoom) e.stopPropagation()
+    },
+    onPasteCapture: stop,
+    onDropCapture: stop,
+    onDragOverCapture: stop,
+    onContextMenuCapture: stop,
+  }
 
   const counts = data?.counts
   return (
-    <div className="World" data-theme={theme}>
-      <div
-        ref={surface}
-        className="World-surface"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onClickCapture={onClickCapture}
-        onWheel={onWheel}
-      >
-        <div className="World-plane" style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.z})` }}>
-          {placed.map((p) => (
-            <Thing key={p.group.items[0]!.id} placed={p} people={people} meId={me?.id ?? null} theme={theme} root={surface.current} resolution={resolution} />
-          ))}
-        </div>
-      </div>
+    <div className="World" data-theme={theme} {...guards}>
+      <Quickdraw store={store} theme={theme} grid="dots" watermark={false} onMount={onMount} />
+      {editor && <Chips editor={editor} laid={laid} people={people} meId={me?.id ?? null} />}
       <header className="World-header">
         <a className="World-wordmark" href="/">
           desktop.fyi
@@ -264,9 +231,8 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
           </a>
         )}
       </div>
-      {placed.length > 0 && viewport.w >= 560 && <RoomMap boxes={boxes} camera={camera} viewport={viewport} theme={theme} onCamera={setCamera} />}
-      {data && placed.length === 0 && <div className="Notice">Nothing has been made this week. Be the first.</div>}
-      {data && placed.length > 0 && !welcoming && <div className="World-hint Muted">The newest things sit in the middle. Drag to look around; click anything to visit its desktop.</div>}
+      {data && laid.length === 0 && <div className="Notice">Nothing has been made this week. Be the first.</div>}
+      {data && laid.length > 0 && !welcoming && <div className="World-hint Muted">The newest things sit in the middle. Drag to look around, zoom to read; click anything to visit its desktop.</div>}
       {welcoming && (
         <div className="World-welcome" onPointerDown={(e) => e.target === e.currentTarget && setWelcoming(false)}>
           <Landing onDismiss={() => setWelcoming(false)} />
@@ -280,50 +246,40 @@ function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? '' : 's'}`
 }
 
-/** One group, drawn once it comes near the window: hundreds of canvases at once would not be kind to a phone. */
-function Thing({ placed, people, meId, theme, root, resolution }: { placed: Placed; people: People; meId: string | null; theme: 'light' | 'dark'; root: HTMLElement | null; resolution: number }) {
-  const { group, records, assets, x, y, w, h } = placed
-  const canvas = useRef<HTMLCanvasElement>(null)
-  const [near, setNear] = useState(false)
-  useEffect(() => {
-    const el = canvas.current
-    if (!el || near) return
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((en) => en.isIntersecting)) setNear(true)
-      },
-      { root, rootMargin: '400px' }
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [root, near])
-  useEffect(() => {
-    if (!near || !canvas.current) return
-    try {
-      renderThumb(canvas.current, records, assets, theme, { oversample: resolution })
-    } catch (e) {
-      console.warn('thumbnail failed', e)
-    }
-  }, [near, records, assets, theme, resolution])
-  const newest = group.items[0]!
-  const owner = people.get(group.boardId)
-  const by = nameOf(people, newest.meta.by, meId)
-  const where = newest.meta.by === group.boardId ? '' : ` on ${nameOf(people, group.boardId, meId)}'s desktop`
-  const count = group.items.length > 1 ? ` · ${group.items.length} things` : ''
-  const title = `${by}${where} · ${relativeTime(group.editedAt)}${count}`
+function hrefOf(l: Laid, people: People): string | null {
+  const handle = people.get(l.group.boardId)?.handle
+  return handle ? itemsLink(handle, l.group.items.map((i) => i.id)) : null
+}
+
+/**
+ * A chip at each clump's foot: who, where, when; the caption unfolds on hover.
+ * The chips sit in page coordinates on a layer that carries the camera, so a
+ * pan moves them with the board and only the layer's transform changes.
+ */
+function Chips({ editor, laid, people, meId }: { editor: Editor; laid: Laid[]; people: People; meId: string | null }) {
+  const [, rerender] = useReducer((n: number) => n + 1, 0)
+  useEffect(() => editor.on('camera', rerender), [editor])
+  const chips = useMemo(
+    () =>
+      laid.map((l) => {
+        const newest = l.group.items[0]!
+        const by = nameOf(people, newest.meta.by, meId)
+        const where = newest.meta.by === l.group.boardId ? '' : ` on ${nameOf(people, l.group.boardId, meId)}'s desktop`
+        const count = l.group.items.length > 1 ? ` · ${l.group.items.length} things` : ''
+        const title = `${by}${where} · ${relativeTime(l.group.editedAt)}${count}`
+        return (
+          <a key={newest.id} className="World-by" href={hrefOf(l, people) ?? '#'} title={title} style={{ translate: `${l.box.x}px ${l.box.y + l.box.h}px` }} draggable={false}>
+            <Avatar id={newest.meta.by} name={nameOf(people, newest.meta.by)} avatar={people.get(newest.meta.by)?.avatar ?? null} className="Avatar--small" />
+            <span className="World-caption">{title}</span>
+          </a>
+        )
+      }),
+    [laid, people, meId]
+  )
+  const cam = editor.camera
   return (
-    <a
-      className="World-thing"
-      href={owner?.handle ? itemsLink(owner.handle, group.items.map((i) => i.id)) : '#'}
-      style={{ left: x, top: y, width: w, height: h, opacity: alphaAt(group.age) }}
-      title={title}
-      draggable={false}
-    >
-      <canvas ref={canvas} />
-      <span className="World-by">
-        <Avatar id={newest.meta.by} name={nameOf(people, newest.meta.by)} avatar={people.get(newest.meta.by)?.avatar ?? null} className="Avatar--small" />
-        <span className="World-caption">{title}</span>
-      </span>
-    </a>
+    <div className="World-chips" style={{ transform: `translate(${cam.x * cam.z}px, ${cam.y * cam.z}px) scale(${cam.z})`, ['--iz' as string]: 1 / cam.z }}>
+      {chips}
+    </div>
   )
 }

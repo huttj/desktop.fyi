@@ -93,19 +93,21 @@ export function gapBetween(a: Box, b: Box): number {
  * reach a touch further.
  */
 export const CLUSTER_GAP = 110
+/** The room reaches further: a section's heading, its posts and the diagram under them are one thing there. */
+export const ROOM_GAP = 360
 
-export function clumped(a: Box, b: Box): boolean {
-  const reach = CLUSTER_GAP + 0.04 * Math.min(Math.max(a.w, a.h), Math.max(b.w, b.h))
+export function clumped(a: Box, b: Box, gap = CLUSTER_GAP): boolean {
+  const reach = gap + 0.04 * Math.min(Math.max(a.w, a.h), Math.max(b.w, b.h))
   return gapBetween(a, b) <= reach
 }
 
 /** Which of these boxes clump with which, transitively: the index of each one's group root. */
-export function clumpGroups(boxes: Box[], together: (a: Box, b: Box) => boolean = clumped): number[] {
+export function clumpGroups(boxes: Box[], gap = CLUSTER_GAP): number[] {
   const parent = boxes.map((_, i) => i)
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
-      if (together(boxes[i]!, boxes[j]!)) parent[find(i)] = find(j)
+      if (clumped(boxes[i]!, boxes[j]!, gap)) parent[find(i)] = find(j)
     }
   }
   return boxes.map((_, i) => find(i))
