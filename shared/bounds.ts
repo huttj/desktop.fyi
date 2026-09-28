@@ -130,16 +130,35 @@ export function touchBoxes(rec: BoardRecord): Box[] {
   return [approxBounds(rec)]
 }
 
-/** Which of these things clump with which, transitively: the index of each one's group root. Each thing is one or more boxes. */
-export function clumpGroups(things: Box[][], reach?: Reach): number[] {
+/**
+ * Which of these things clump with which, transitively: the index of each one's
+ * group root. Each thing is one or more boxes; things Quickdraw has grouped
+ * (a shared `groupId`, given in `groupOf`) are one piece however far apart.
+ */
+export function clumpGroups(things: Box[][], reach?: Reach, groupOf?: Array<string | null | undefined>): number[] {
   const parent = things.map((_, i) => i)
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
+  if (groupOf) {
+    const first = new Map<string, number>()
+    groupOf.forEach((g, i) => {
+      if (!g) return
+      const j = first.get(g)
+      if (j === undefined) first.set(g, i)
+      else parent[find(i)] = find(j)
+    })
+  }
   for (let i = 0; i < things.length; i++) {
     for (let j = i + 1; j < things.length; j++) {
       if (things[i]!.some((a) => things[j]!.some((b) => clumped(a, b, reach)))) parent[find(i)] = find(j)
     }
   }
   return things.map((_, i) => find(i))
+}
+
+/** Quickdraw's group membership, when a record has one. */
+export function groupIdOf(rec: BoardRecord): string | null {
+  const g = (rec as { groupId?: unknown }).groupId
+  return typeof g === 'string' && g ? g : null
 }
 
 export interface Box {

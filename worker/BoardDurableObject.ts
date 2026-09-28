@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
-import { approxBounds, centreOf, clumpGroups, touchBoxes, type Reach } from '../shared/bounds'
+import { approxBounds, centreOf, clumpGroups, groupIdOf, touchBoxes, type Reach } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
 import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, SPREAD_CAP, canSee, falloff, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
@@ -720,7 +720,7 @@ export class BoardDurableObject extends DurableObject<Env> {
       if (age >= HIDE_AT) continue
       visible.push({ row, meta, age, rec: JSON.parse(row.data) as ShapeRecord })
     }
-    const roots = clumpGroups(visible.map((v) => touchBoxes(v.rec)), reach)
+    const roots = clumpGroups(visible.map((v) => touchBoxes(v.rec)), reach, visible.map((v) => groupIdOf(v.rec)))
     const byRoot = new Map<number, typeof visible>()
     visible.forEach((v, i) => {
       const list = byRoot.get(roots[i]!) ?? []
@@ -755,6 +755,8 @@ export class BoardDurableObject extends DurableObject<Env> {
       const rec = JSON.parse(row.data) as ShapeRecord
       const b = approxBounds(rec)
       const item: PlacedItem = { id: row.id, x: b.x, y: b.y, w: b.w, h: b.h }
+      const group = groupIdOf(rec)
+      if (group) item.group = group
       const raw = rec.type === 'text' ? rec.props?.text : rec.type === 'geo' ? rec.props?.label : null
       if (typeof raw === 'string') {
         const text = raw.replace(/\s+/g, ' ').trim()

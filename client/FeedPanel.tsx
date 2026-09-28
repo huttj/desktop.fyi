@@ -5,7 +5,7 @@ import type { Feed as FeedData, FeedItem, Me, PlacedItem } from '../shared/types
 import { api, ApiError } from './api'
 import { Avatar } from './Avatar'
 import { nameOf, relativeTime, type People } from './people'
-import { clumped } from '../shared/bounds'
+import { clumpGroups } from '../shared/bounds'
 import { renderThumb } from './thumb'
 import { itemsLink } from './viewLink'
 
@@ -54,23 +54,21 @@ function clusterItems(items: FeedItem[], placedByBoard: Record<string, PlacedIte
       nodes.push(n)
       known.add(id)
     }
-    const parent = nodes.map((_, i) => i)
-    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        if (clumped(nodes[i]!, nodes[j]!)) parent[find(i)] = find(j)
-      }
-    }
+    const roots = clumpGroups(
+      nodes.map((n) => [n]),
+      undefined,
+      nodes.map((n) => n.group)
+    )
     const index = new Map(nodes.map((n, i) => [n.id, i]))
     const buckets = new Map<number, { items: FeedItem[]; nodes: PlacedItem[] }>()
     for (const item of list) {
       const i = index.get(item.id)
-      const root = i === undefined ? -1 - buckets.size : find(i)
+      const root = i === undefined ? -1 - buckets.size : roots[i]!
       const bucket = buckets.get(root) ?? { items: [], nodes: [] }
       bucket.items.push(item)
       buckets.set(root, bucket)
     }
-    nodes.forEach((n, i) => buckets.get(find(i))?.nodes.push(n))
+    nodes.forEach((n, i) => buckets.get(roots[i]!)?.nodes.push(n))
     for (const bucket of buckets.values()) groups.push(makeGroup(boardId, bucket.items, bucket.nodes))
   }
   return groups

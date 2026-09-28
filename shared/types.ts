@@ -81,6 +81,8 @@ export interface PlacedItem {
   /** A short text (or label), with a size rank, so a cluster can be captioned. */
   text?: string
   weight?: number
+  /** Quickdraw's group, when the thing is in one: members cluster together however far apart. */
+  group?: string
 }
 
 export interface BoardActivity {
