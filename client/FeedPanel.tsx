@@ -5,7 +5,8 @@ import type { Feed as FeedData, FeedItem, Me, PlacedItem } from '../shared/types
 import { api, ApiError } from './api'
 import { Avatar } from './Avatar'
 import { nameOf, relativeTime, type People } from './people'
-import { gapBetween, renderThumb } from './thumb'
+import { gapBetween } from '../shared/bounds'
+import { renderThumb } from './thumb'
 import { itemsLink } from './viewLink'
 
 /**

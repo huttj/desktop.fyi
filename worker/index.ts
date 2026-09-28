@@ -5,7 +5,7 @@ import { BoardDurableObject, OWNER_HEADER, USER_HEADER } from './BoardDurableObj
 import { Db, HANDLE_RE, RESERVED_HANDLES, toPerson, toSummary, type UserRow } from './db'
 import { sendMagicLink } from './email'
 import { DAY_MS } from '../shared/freshness'
-import type { DesktopStats, Everyone, Feed, FeedItem, Me, Person, PlacedItem, Profile, Revision } from '../shared/types'
+import type { DesktopStats, Everyone, EveryoneGroup, Feed, FeedItem, Me, Person, PlacedItem, Profile, Revision } from '../shared/types'
 
 export { BoardDurableObject } from './BoardDurableObject'
 
@@ -17,10 +17,10 @@ const AVATAR_MAX_BYTES = 512 * 1024
 const TOKEN_MIN_INTERVAL_MS = 30 * 1000
 const TOKENS_PER_HOUR = 6
 const FEED_WINDOW_MS = 7 * DAY_MS
-/** The public room: at most this many desktops are asked, this many things each, this many shown. */
+/** The public room: at most this many desktops are asked, this many groups each, this many shown. */
 const EVERYONE_MAX_BOARDS = 500
-const EVERYONE_PER_BOARD = 40
-const EVERYONE_ITEMS = 100
+const EVERYONE_PER_BOARD = 200
+const EVERYONE_GROUPS = 500
 const EVERYONE_TTL_S = 60
 
 async function readJson<T>(request: IRequest): Promise<Partial<T>> {
@@ -327,28 +327,29 @@ const router = AutoRouter<IRequest, Args>({
       users.map(async (u) => {
         const stub = board(env, u.id)
         try {
-          const [recent, summary] = await Promise.all([stub.activity(since, EVERYONE_PER_BOARD), stub.summary()])
+          const [recent, summary] = await Promise.all([stub.recentGroups(since, EVERYONE_PER_BOARD), stub.summary()])
           return { recent, summary }
         } catch (e) {
           console.warn('everyone: board unavailable', u.id, e)
-          return { recent: [] as FeedItem[], summary: { liveItems: 0, lastActivityAt: null as number | null } }
+          return { recent: [] as EveryoneGroup[], summary: { liveItems: 0, lastActivityAt: null as number | null } }
         }
       })
     )
-    // only things the page can draw: the record itself travels, and big drawings do not
-    const items = results
+    // only what the page can draw: the record itself travels, and big drawings do not
+    const groups = results
       .flatMap((r) => r.recent)
-      .filter((i) => i.record)
-      .sort((a, b) => b.meta.editedAt - a.meta.editedAt)
-      .slice(0, EVERYONE_ITEMS)
+      .map((g) => ({ ...g, items: g.items.filter((i) => i.record) }))
+      .filter((g) => g.items.length)
+      .sort((a, b) => b.editedAt - a.editedAt)
+      .slice(0, EVERYONE_GROUPS)
     const ids = new Set<string>()
-    for (const i of items) {
-      ids.add(i.boardId)
-      ids.add(i.meta.by)
+    for (const g of groups) {
+      ids.add(g.boardId)
+      for (const i of g.items) ids.add(i.meta.by)
     }
     const people: Person[] = (await d.usersByIds([...ids])).map(toPerson)
     const payload: Everyone = {
-      items,
+      groups,
       people,
       counts: {
         desktops: users.length,

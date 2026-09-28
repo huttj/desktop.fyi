@@ -97,9 +97,20 @@ export interface Feed {
   people: Person[]
 }
 
+/** Things on one desktop that touch each other travel as one: a highlight with its words, a caption with its picture. */
+export interface EveryoneGroup {
+  boardId: string
+  /** Newest edit among the members. */
+  editedAt: number
+  /** The freshest member's provisional age in days. */
+  age: number
+  /** Members that can be drawn (their records travel), newest first. */
+  items: FeedItem[]
+}
+
 /** The public room: the newest things on every desktop, and how big the place is. */
 export interface Everyone {
-  items: FeedItem[]
+  groups: EveryoneGroup[]
   people: Person[]
   counts: {
     /** Desktops that exist (people who finished signing up). */

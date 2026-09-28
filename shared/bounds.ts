@@ -78,6 +78,35 @@ export function centreOf(rec: BoardRecord): { cx: number; cy: number } {
   return { cx: b.x + b.w / 2, cy: b.y + b.h / 2 }
 }
 
+/** The empty space between two boxes (0 when they touch or overlap). */
+export function gapBetween(a: Box, b: Box): number {
+  const dx = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w))
+  const dy = Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h))
+  return Math.hypot(dx, dy)
+}
+
+/** Boxes at most this far apart (page units) count as touching: a highlight lies on its words, a caption hugs its picture. */
+export const TOUCH = 6
+
+/** Which of these boxes touch which, transitively: the index of each one's group root. */
+export function touchingGroups(boxes: Box[], tolerance = TOUCH): number[] {
+  const parent = boxes.map((_, i) => i)
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (gapBetween(boxes[i]!, boxes[j]!) <= tolerance) parent[find(i)] = find(j)
+    }
+  }
+  return boxes.map((_, i) => find(i))
+}
+
+export interface Box {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0
 }

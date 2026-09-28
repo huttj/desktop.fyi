@@ -1,10 +1,10 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
-import { approxBounds, centreOf } from '../shared/bounds'
+import { approxBounds, centreOf, touchingGroups } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
 import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, SPREAD_CAP, canSee, falloff, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
-import type { DesktopStats, FeedItem, ItemMeta, PlacedItem, Revision } from '../shared/types'
+import type { DesktopStats, EveryoneGroup, FeedItem, ItemMeta, PlacedItem, Revision } from '../shared/types'
 
 /** Set by the worker (never trusted from the client). */
 export const USER_HEADER = 'x-dfyi-user'
@@ -655,6 +655,47 @@ export class BoardDurableObject extends DurableObject<Env> {
       if (out.length >= limit) break
     }
     return out
+  }
+
+  /**
+   * Recently touched things for the public room, each with whatever touches it:
+   * a highlight brings the words under it, however old; a caption brings its
+   * picture. A group made only of highlighter strokes is nothing to look at and
+   * is left out. Newest first, by the newest member.
+   */
+  async recentGroups(since: number, limit = 40, membersCap = 60): Promise<EveryoneGroup[]> {
+    const now = Date.now()
+    const rows = this.sql.exec<Row>("SELECT * FROM records WHERE state = 'live' AND is_asset = 0 ORDER BY edited_at DESC LIMIT 2000").toArray()
+    const visible: Array<{ row: Row; meta: ItemMeta; age: number; rec: ShapeRecord }> = []
+    for (const row of rows) {
+      const meta = metaOf(row)
+      const age = provisionalAge(meta, now)
+      if (age >= HIDE_AT) continue
+      visible.push({ row, meta, age, rec: JSON.parse(row.data) as ShapeRecord })
+    }
+    const roots = touchingGroups(visible.map((v) => approxBounds(v.rec)))
+    const byRoot = new Map<number, typeof visible>()
+    visible.forEach((v, i) => {
+      const list = byRoot.get(roots[i]!) ?? []
+      list.push(v)
+      byRoot.set(roots[i]!, list)
+    })
+    const out: EveryoneGroup[] = []
+    for (const members of byRoot.values()) {
+      members.sort((a, b) => b.row.edited_at - a.row.edited_at)
+      const newest = members[0]!
+      if (newest.row.edited_at < since) continue
+      if (members.every((m) => m.rec.type === 'highlight')) continue
+      const kept = members.slice(0, membersCap)
+      out.push({
+        boardId: this.owner,
+        editedAt: newest.row.edited_at,
+        age: Math.min(...kept.map((m) => m.age)),
+        items: kept.map((m) => this.feedItem(m.row, m.meta, m.age)),
+      })
+    }
+    out.sort((a, b) => b.editedAt - a.editedAt)
+    return out.slice(0, limit)
   }
 
   /** Every visible thing, placed: the feed clusters with these so a long column stays one entry. */

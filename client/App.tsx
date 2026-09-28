@@ -3,7 +3,6 @@ import type { Me } from '../shared/types'
 import { api, ApiError } from './api'
 import { Canvas } from './Canvas'
 import { Everyone } from './Everyone'
-import { Landing } from './Landing'
 import { Login } from './Login'
 import { NamePrompt } from './NamePrompt'
 import { navigate, onNavigate } from './navigate'
@@ -82,7 +81,8 @@ export function App() {
     if (boardHandle) return <Canvas key={`viewer:${boardHandle}`} handle={boardHandle} me={null} onSignOut={signOut} />
     if (path === '/everyone') return <Everyone me={null} />
     if (['/login', '/feed', '/admin', '/profile', '/settings', '/stats'].includes(path)) return <Login />
-    return <Landing />
+    // The front door is the public room with the welcome card over it.
+    return <Everyone me={null} welcome />
   }
 
   const me = auth.me

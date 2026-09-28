@@ -4,9 +4,10 @@ import { Store, drawShape, pageBounds, themeOf, type AssetRecord, type Bounds, t
  * Draws one or more Quickdraw records into a canvas, fitted with a margin,
  * using the same renderer the board uses. Images load on demand and redraw
  * when ready. Several records draw as they sit on the desktop, so a cluster
- * reads as the little scene it is.
+ * reads as the little scene it is. `oversample` adds pixels for a canvas that
+ * the page will show scaled up, so it stays sharp.
  */
-export function renderThumb(canvas: HTMLCanvasElement, records: ShapeRecord[], assets: AssetRecord[], theme: 'light' | 'dark') {
+export function renderThumb(canvas: HTMLCanvasElement, records: ShapeRecord[], assets: AssetRecord[], theme: 'light' | 'dark', { oversample = 1 } = {}) {
   const store = new Store()
   store.transact(() => {
     for (const a of assets) store.put(a, 'remote')
@@ -15,7 +16,8 @@ export function renderThumb(canvas: HTMLCanvasElement, records: ShapeRecord[], a
   const t = themeOf(theme)
   const sorted = [...records].sort((a, b) => a.z - b.z)
   const draw = () => {
-    const dpr = window.devicePixelRatio || 1
+    // `oversample` is for a canvas that is shown scaled up (the room's zoom): more pixels, same size
+    const dpr = (window.devicePixelRatio || 1) * oversample
     const w = canvas.clientWidth || 160
     const h = canvas.clientHeight || 120
     canvas.width = Math.round(w * dpr)
@@ -50,9 +52,3 @@ export function unionBounds(records: ShapeRecord[]): Bounds | null {
   return b
 }
 
-/** The empty space between two boxes (0 when they touch or overlap). */
-export function gapBetween(a: Bounds, b: Bounds): number {
-  const dx = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w))
-  const dy = Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h))
-  return Math.hypot(dx, dy)
-}
