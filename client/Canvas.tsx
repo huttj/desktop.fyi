@@ -12,6 +12,7 @@ import { AdminDialog } from './AdminDialog'
 import { ProfileDialog } from './ProfileDialog'
 import { StatsDialog } from './StatsDialog'
 import { Viewports } from './Viewports'
+import { canSee, provisionalAge, visibilityAt } from '../shared/freshness'
 import { installFreshness, type FreshnessState, type LayerView } from './freshness'
 import { installLinkify } from './linkify'
 import { navigate } from './navigate'
@@ -209,19 +210,40 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
     [setView]
   )
 
+  /** A deep link to a hidden thing of mine (from the feed's vanishing list) turns my hidden things on so it can show. */
+  const revealHiddenFor = useCallback(
+    (ids: string[]) => {
+      if (fresh.current.showHidden) return
+      const now = Date.now()
+      for (const id of ids) {
+        const meta = fresh.current.metas.get(id)
+        if (!meta) continue
+        const age = provisionalAge(meta, now)
+        if (visibilityAt(age) === 'hidden' && canSee(meta, age, fresh.current.viewerId)) {
+          setShowHidden(true)
+          return
+        }
+      }
+    },
+    [setShowHidden]
+  )
+
   const frame = useCallback(
     (ed: Editor) => {
       if (framed.current) return
       framed.current = true
       if (initialView) {
-        if (initialView.kind === 'items') showLayersFor(initialView.ids)
+        if (initialView.kind === 'items') {
+          showLayersFor(initialView.ids)
+          revealHiddenFor(initialView.ids)
+        }
         if (!applyView(ed, initialView, { inset: panelInset() })) {
           setNotice('That item is no longer on this desktop')
           if (store.shapes().length) ed.fitContent({ maxZoom: 1 })
         }
       } else if (store.shapes().length) ed.fitContent({ maxZoom: 1 })
     },
-    [initialView, store, showLayersFor]
+    [initialView, store, showLayersFor, revealHiddenFor]
   )
 
   const missing = profile === 'missing'
@@ -371,12 +393,15 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
     const onHash = () => {
       const view = parseView(window.location.hash)
       if (!view) return
-      if (view.kind === 'items') showLayersFor(view.ids)
+      if (view.kind === 'items') {
+        showLayersFor(view.ids)
+        revealHiddenFor(view.ids)
+      }
       if (!applyView(editor, view, { animate: 260, inset: panelInset() })) setNotice('That item is no longer on this desktop')
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [editor, showLayersFor])
+  }, [editor, showLayersFor, revealHiddenFor])
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const ed = editorRef.current

@@ -1,6 +1,6 @@
 import { pageBounds, type AssetRecord, type ShapeRecord } from '@quickdrawjs/core'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { describeAge } from '../shared/freshness'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { FADE_START, HIDE_AT, describeAge } from '../shared/freshness'
 import type { Feed as FeedData, FeedItem, Me, PlacedItem } from '../shared/types'
 import { api, ApiError } from './api'
 import { Avatar } from './Avatar'
@@ -216,7 +216,12 @@ function Entry({ group, people, meId, theme, vanishing = false }: { group: Group
   const what = vanishing ? `${count} · ${describeAge(group.oldestAge)}` : `${count}${onOwn ? '' : ` on ${where}`}`
 
   return (
-    <a className="Entry" href={href} style={{ opacity: vanishing ? Math.max(0.4, 1 - (group.oldestAge - 1) / 3) : 1 }}>
+    // vanishing things yellow like old paper as they go, rather than thinning out: full sepia once hidden
+    <a
+      className={`Entry${vanishing ? ' Entry--vanishing' : ''}`}
+      href={href}
+      style={vanishing ? ({ '--sepia': Math.min(1, Math.max(0, (group.oldestAge - FADE_START) / (HIDE_AT - FADE_START))).toFixed(2) } as CSSProperties) : undefined}
+    >
       <div className="Entry-head">
         <span className="Entry-avatars">
           {group.people.slice(0, 3).map((id) => (
