@@ -7,8 +7,7 @@
 import { SIZES, HIGHLIGHT_ALPHA, HIGHLIGHT_SCALE, HIGHLIGHT_PLAIN, GRID_STEP, GRID_MAJOR } from './palette.js'
 import { lineHeads, headGeometry,
   localBounds, pageBounds, textLayout, noteLayout, geoLabelLayout, lineBaseline, lineRuns,
-  buildGeoPath, buildInkPath, dashFor, imageFrame, urlBadgeAt, NOTE_PAD, SEMI,
-} from './shapes.js'
+  buildGeoPath, buildInkPath, dashFor, imageFrame, urlBadgeAt, NOTE_PAD, SEMI, arrowLabelLayout, ARROW_LABEL_PAD } from './shapes.js'
 import { boundsUnion, boundsExpand, traceSmooth } from './geometry.js'
 
 const n = (v) => String(Math.round(v * 100) / 100)
@@ -148,6 +147,11 @@ export function shapeToSvg(shape, { theme, store, defs }) {
         if (g.kind === 'dot') { body += tag('circle', { cx: n(g.cx), cy: n(g.cy), r: n(g.r), fill: col.stroke }); continue }
         const d = g.pts.map(([x, y], i) => (i ? 'L' : 'M') + n(x) + ' ' + n(y)).join('') + (g.kind === 'triangle' ? 'Z' : '')
         body += tag('path', { d, ...strokeAttrs(col.stroke, 'solid', w), ...(g.kind === 'triangle' ? { fill: col.stroke } : {}) })
+      }
+      const al = arrowLabelLayout(shape)
+      if (al) {
+        body += tag('rect', { x: n(al.box.x), y: n(al.box.y), width: n(al.box.w), height: n(al.box.h), rx: 4, fill: theme.background })
+        body += textBlockSvg(theme, { ...al, marks: p.labelMarks, text: p.label, left: (line) => al.box.x + al.box.w / 2 - line.w / 2 }, col.stroke, al.box.y + ARROW_LABEL_PAD)
       }
       break
     }

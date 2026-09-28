@@ -4,8 +4,8 @@ import type { Box } from './bounds'
 /**
  * A zoned graph laid out as records: zones side by side (wrapping to rows),
  * each a dashed box with a title and its nodes in a grid, every node a box
- * sized to its label; edges are arrows tied to both ends, with their captions
- * set off to one side where the line is clear, else in a legend below.
+ * sized to its label; edges are arrows tied to both ends, carrying their
+ * captions as labels where the middle of the line is clear, else in a legend below.
  * Pure: the caller mints ids and decides where it goes.
  */
 
@@ -172,6 +172,16 @@ export function layoutGraph(spec: GraphSpec, at: { x: number; y: number }, mint:
     if (!a || !b) continue
     const ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2
     const head = e.head ?? 'arrow'
+    // the caption rides the arrow itself (its label, drawn at the middle of the line) when the middle
+    // lies on no node; when the line crosses a zone full of boxes it goes in a legend below instead
+    let onArrow = false
+    if (e.label) {
+      const w = Math.min(220, e.label.length * LABEL_FONT * 0.55 + 16)
+      const h = LABEL_LINE * labelLines(e.label, w) + 8
+      const mx = (ax + bx) / 2 - w / 2, my = (ay + by) / 2 - h / 2
+      onArrow = Object.values(nodeBoxes).every((n) => mx + w <= n.x || n.x + n.w <= mx || my + h <= n.y || n.y + n.h <= my)
+      if (!onArrow) legend.push({ line: `${labelOf[e.from]} → ${labelOf[e.to]}: ${e.label}`, color: e.color ?? 'black' })
+    }
     shape(head === 'none' ? 'line' : 'arrow', ax, ay, {
       dx: bx - ax,
       dy: by - ay,
@@ -181,29 +191,11 @@ export function layoutGraph(spec: GraphSpec, at: { x: number; y: number }, mint:
       color: e.color ?? 'black',
       size: 's',
       dash: e.dashed ? 'dashed' : 'solid',
+      font: 'sans',
+      ...(onArrow ? { label: e.label, labelSize: 's' } : {}),
       startBind: { id: nodeIds[e.from], nx: 0.5, ny: 0.5 },
       endBind: { id: nodeIds[e.to], nx: 0.5, ny: 0.5 },
     })
-    if (e.label) {
-      // set off to one side of the line, along the normal; slid along the edge from its middle
-      // outward until it lies on no node, so a caption never covers a box
-      const len = Math.hypot(bx - ax, by - ay) || 1
-      const nx = -(by - ay) / len, ny = (bx - ax) / len
-      const w = Math.min(240, e.label.length * LABEL_FONT * 0.55 + 8)
-      const h = LABEL_LINE * labelLines(e.label, w)
-      const boxes = Object.values(nodeBoxes)
-      const at = (t: number) => ({ x: ax + (bx - ax) * t + nx * 18 - w / 2, y: ay + (by - ay) * t + ny * 18 - h / 2 })
-      const clear = (b: { x: number; y: number }) => boxes.every((n) => b.x + w <= n.x || n.x + n.w <= b.x || b.y + h <= n.y || n.y + n.h <= b.y)
-      let spot: { x: number; y: number } | null = null
-      for (let i = 0; i < 15 && !spot; i++) {
-        const t = 0.5 + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.05
-        const c = at(t)
-        if (clear(c)) spot = c
-      }
-      if (spot) text(spot.x, spot.y, e.label, 's', { color: e.color ?? 'black', w, align: 'middle' })
-      // no clear spot along the line (it crosses a zone full of boxes): the caption goes in a legend below
-      else legend.push({ line: `${labelOf[e.from]} → ${labelOf[e.to]}: ${e.label}`, color: e.color ?? 'black' })
-    }
   }
 
   if (legend.length) {

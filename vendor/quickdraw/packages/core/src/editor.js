@@ -9,8 +9,7 @@ import {
   lineHeads, typeForHeads,
   localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits, tintedImage,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, imageFrame,
-  mapMarks, textLinkAt, textHitAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark,
-} from './shapes.js'
+  mapMarks, textLinkAt, textHitAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark, arrowLabelLayout, arrowMidpoint, ARROW_LABEL_PAD } from './shapes.js'
 import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith } from './geometry.js'
 import { sceneToSvg } from './svg.js'
 import { BINDABLE, insideShape, anchorAt, rebindArrow, remapBindings } from './bindings.js'
@@ -1578,6 +1577,21 @@ export class Editor {
       ta.style.font = `500 ${fs}px ${fam}`
       ta.style.lineHeight = fs * 1.3 + 'px'
       ta.style.paddingTop = Math.max(0, h / 2 - fs * 1.3) / 2 + 'px'
+    } else if ((shape.type === 'arrow' || shape.type === 'line') && ed.field === 'label') {
+      // a caption box centred on the middle of the line, as wide as a label may wrap
+      const p = shape.props
+      const fs = FONT_SIZES[p.labelSize || 's']
+      const fam = FONTS[p.font || 'draw']
+      const al = arrowLabelLayout(shape)
+      const m = arrowMidpoint(p)
+      w = 220 + ARROW_LABEL_PAD * 2
+      h = (al ? al.textH : fs * 1.3) + ARROW_LABEL_PAD * 2
+      ox = m.x - w / 2
+      oy = m.y - h / 2
+      align = 'center'
+      ta.style.font = `500 ${fs}px ${fam}`
+      ta.style.lineHeight = fs * 1.3 + 'px'
+      ta.style.paddingTop = ARROW_LABEL_PAD + 'px'
     } else {
       lay = textLayout(shape)
       const p0 = shape.props
@@ -1636,7 +1650,7 @@ export class Editor {
       const s = this.store.get(id)
       if (!s) continue
       if ((s.type === 'text' || s.type === 'note') && s.props.text) targets.push([s, 'text', 'marks'])
-      else if (s.type === 'geo' && s.props.label) targets.push([s, 'label', 'labelMarks'])
+      else if (['geo', 'arrow', 'line'].includes(s.type) && s.props.label) targets.push([s, 'label', 'labelMarks'])
     }
     if (!targets.length) return false
     const allOn = targets.every(([s, tk, mk]) => hasMark(s.props[mk], 0, s.props[tk].length, key))
@@ -2524,7 +2538,7 @@ export class Editor {
         this._startTextEdit(hit.id, 'text', { at: p })
         return
       }
-      if (hit.type === 'geo') {
+      if (hit.type === 'geo' || hit.type === 'arrow' || hit.type === 'line') {
         this.setSelection([hit.id])
         this._startTextEdit(hit.id, 'label', { at: p })
         return
@@ -2610,7 +2624,7 @@ export class Editor {
     if (k === 'enter' && this.selection.size === 1) {
       const s = this.store.get([...this.selection][0])
       if (s && ['text', 'note'].includes(s.type)) { e.preventDefault(); this._startTextEdit(s.id, 'text') }
-      else if (s && s.type === 'geo') { e.preventDefault(); this._startTextEdit(s.id, 'label') }
+      else if (s && ['geo', 'arrow', 'line'].includes(s.type)) { e.preventDefault(); this._startTextEdit(s.id, 'label') }
       else if (s && s.type === 'image') { e.preventDefault(); this.startCrop(s.id) }
       return
     }
@@ -2675,12 +2689,12 @@ export class Editor {
     const { w, h } = this.viewSize()
     this.zoomAt(w / 2, h / 2, 1 / this.camera.z, { animate })
   }
-  // open the text surface on a text, note (body) or geo (label) shape
+  // open the text surface on a text, note (body), or geo, arrow or line (label) shape
   editShapeText(id) {
     const s = this.store.get(id)
     if (!s || this.readonly) return
     if (s.type === 'text' || s.type === 'note') this._startTextEdit(id, 'text')
-    else if (s.type === 'geo') this._startTextEdit(id, 'label')
+    else if (['geo', 'arrow', 'line'].includes(s.type)) this._startTextEdit(id, 'label')
   }
 
   _wheel(e) {

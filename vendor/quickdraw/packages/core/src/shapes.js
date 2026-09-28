@@ -63,7 +63,12 @@ export function localBounds(shape) {
       const bend = p.bend || 0
       const x = Math.min(0, p.dx) - Math.abs(bend)
       const y = Math.min(0, p.dy) - Math.abs(bend)
-      return { x, y, w: Math.abs(p.dx) + Math.abs(bend) * 2, h: Math.abs(p.dy) + Math.abs(bend) * 2 }
+      const b = { x, y, w: Math.abs(p.dx) + Math.abs(bend) * 2, h: Math.abs(p.dy) + Math.abs(bend) * 2 }
+      // the label's plate is part of the thing
+      const l = arrowLabelLayout(shape)
+      if (!l) return b
+      const x0 = Math.min(b.x, l.box.x), y0 = Math.min(b.y, l.box.y)
+      return { x: x0, y: y0, w: Math.max(b.x + b.w, l.box.x + l.box.w) - x0, h: Math.max(b.y + b.h, l.box.y + l.box.h) - y0 }
     }
     case 'text': {
       const l = textLayout(shape)
@@ -273,6 +278,35 @@ export function noteLayout(shape) {
   return l
 }
 
+// An arrow's (or line's) label: a caption on the middle of the line, wrapped
+// to a modest width, on a small plate of paper so it reads over the stroke.
+const ARROW_LABEL_W = 220
+export const ARROW_LABEL_PAD = 6
+// the middle of the line: a quadratic's point at t = 1/2 when it bends
+export function arrowMidpoint(p) {
+  const bend = p.bend || 0
+  const len = Math.hypot(p.dx, p.dy) || 1
+  const cx = p.dx / 2 + (-p.dy / len) * bend * 2, cy = p.dy / 2 + (p.dx / len) * bend * 2
+  return { x: 0.5 * cx + 0.25 * p.dx, y: 0.5 * cy + 0.25 * p.dy }
+}
+export function arrowLabelLayout(shape) {
+  const p = shape.props
+  if (!p.label) return null
+  let hit = layoutCache.get(p)
+  if (hit) return hit
+  const fontSize = FONT_SIZES[p.labelSize || 's']
+  const font = FONTS[p.font || 'draw']
+  const lh = fontSize * 1.3
+  const lines = wrapLines(p.label, font, fontSize, ARROW_LABEL_W, p.labelMarks)
+  const textW = lines.reduce((m, l) => Math.max(m, l.w), 0)
+  const textH = lines.length * lh
+  const m = arrowMidpoint(p)
+  const box = { x: m.x - textW / 2 - ARROW_LABEL_PAD, y: m.y - textH / 2 - ARROW_LABEL_PAD, w: textW + ARROW_LABEL_PAD * 2, h: textH + ARROW_LABEL_PAD * 2 }
+  hit = { lines, fontSize, font, lh, textH, box }
+  layoutCache.set(p, hit)
+  return hit
+}
+
 export function geoLabelLayout(shape) {
   const p = shape.props
   if (!p.label) return null
@@ -386,6 +420,11 @@ function textBlock(shape) {
     const l = geoLabelLayout(shape)
     if (!l) return null
     return { ...l, top: p.h / 2 - l.textH / 2, marks: p.labelMarks, text: p.label, scale: 1, left: (line) => p.w / 2 - line.w / 2 }
+  }
+  if (shape.type === 'arrow' || shape.type === 'line') {
+    const l = arrowLabelLayout(shape)
+    if (!l) return null
+    return { ...l, top: l.box.y + ARROW_LABEL_PAD, marks: p.labelMarks, text: p.label, scale: 1, left: (line) => l.box.x + l.box.w / 2 - line.w / 2 }
   }
   return null
 }
@@ -804,6 +843,19 @@ export function drawShape(ctx, shape, opts) {
         if (g.kind === 'triangle') { ctx.closePath(); ctx.fillStyle = col.stroke; ctx.fill() }
         ctx.stroke()
       }
+      if (p.label && opts.hideText !== 'label') {
+        const l = arrowLabelLayout(shape)
+        // a little plate of paper under the words, so they read over the line
+        ctx.save()
+        ctx.setLineDash([])
+        ctx.fillStyle = theme.background
+        ctx.beginPath()
+        if (ctx.roundRect) ctx.roundRect(l.box.x, l.box.y, l.box.w, l.box.h, 4)
+        else ctx.rect(l.box.x, l.box.y, l.box.w, l.box.h)
+        ctx.fill()
+        ctx.restore()
+        drawLabel(ctx, theme, shape, col.stroke)
+      }
       break
     }
     case 'text': {
@@ -894,6 +946,8 @@ export function hitShape(shape, px, py, tol, store) {
     }
     case 'arrow':
     case 'line': {
+      const al = arrowLabelLayout(shape)
+      if (al && l.x >= al.box.x && l.x <= al.box.x + al.box.w && l.y >= al.box.y && l.y <= al.box.y + al.box.h) return true
       const pts = sampleLinePts(p, p.bend || 0)
       return distToPolyline(l.x, l.y, pts, 2) <= tol + SIZES[p.size]
     }

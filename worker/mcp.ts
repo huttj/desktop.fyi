@@ -184,7 +184,7 @@ const TOOLS = [
   {
     name: 'connect_items',
     description:
-      'Draw an arrow from one thing to another on this person\'s desktop, tied to both so it follows them when they move, with an optional caption set off to the side. This is how to connect boxes: an arrow merely drawn near them is not connected.',
+      'Draw an arrow from one thing to another on this person\'s desktop, tied to both so it follows them when they move, with an optional caption carried on the arrow itself. This is how to connect boxes: an arrow merely drawn near them is not connected.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -216,8 +216,9 @@ anything nearby for something new.
   note   props: { text, color: "yellow", size: "m", font, scale: 1 }          a sticky note, 200 square by default
   geo    props: { geo, w, h, color, size, dash, fill, font, label?, labelSize? }   geo: ${GEO_IDS.join(' | ')}
   any shape may carry groupId (a shared string): grouped things are one piece
-  arrow  props: { dx, dy, bend: 0, headStart: "none", headEnd: "arrow", color, size, dash }
-  line   props: { dx, dy, bend: 0, headStart: "none", headEnd: "none", color, size, dash }
+  arrow  props: { dx, dy, bend: 0, headStart: "none", headEnd: "arrow", color, size, dash, label?, labelSize? }
+  line   props: { dx, dy, bend: 0, headStart: "none", headEnd: "none", color, size, dash, label?, labelSize? }
+         (a label rides the middle of the line on a little plate of background, and moves with it)
   draw   props: { pts: [x0, y0, pressure0, x1, y1, pressure1, ...], color, size, dash }   points relative to x, y
   image  props: { w, h, assetId }  with a second record { id: assetId, typeName: "asset", src, w, h }
          (use put_image, which uploads the bytes and writes both)
@@ -242,7 +243,8 @@ What each kind is for (a desktop reads like a desk, not a slide):
          16 of padding, box sized from measure_items of the text plus that padding. Grouped, they select, move,
          feed and show as one thing.
   arrow  a connection between two things, from one to another (headEnd: "arrow"); tie its ends with startBind /
-         endBind: { id, nx: 0.5, ny: 0.5 } so it follows them when they move. line is the same without a head.
+         endBind: { id, nx: 0.5, ny: 0.5 } so it follows them when they move, and caption it with props.label
+         rather than a text floated beside it. line is the same without a head.
   image  a picture, through put_image.
   A layout is a heading, then things laid out under and beside it with a little air between them; stickies go
   next to what they comment on. Read my_desktop first: place new work near the person's existing things, in
@@ -600,15 +602,13 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
       const put: Record<string, BoardRecord> = {
         [arrowId]: {
           id: arrowId, typeName: 'shape', type: head === 'none' ? 'line' : 'arrow', x: ax, y: ay, rot: 0, z: Math.max(Number((a.record as { z?: number }).z ?? 0), Number((b.record as { z?: number }).z ?? 0)) + 1,
-          props: { dx: bx - ax, dy: by - ay, bend: 0, headStart: head === 'both' ? 'arrow' : 'none', headEnd: head === 'none' ? 'none' : 'arrow', color, size: 's', dash: args.dashed ? 'dashed' : 'solid', startBind: { id: from, nx: 0.5, ny: 0.5 }, endBind: { id: to, nx: 0.5, ny: 0.5 } },
+          props: { dx: bx - ax, dy: by - ay, bend: 0, headStart: head === 'both' ? 'arrow' : 'none', headEnd: head === 'none' ? 'none' : 'arrow', color, size: 's', dash: args.dashed ? 'dashed' : 'solid', font: 'sans', startBind: { id: from, nx: 0.5, ny: 0.5 }, endBind: { id: to, nx: 0.5, ny: 0.5 } },
         } as unknown as BoardRecord,
       }
       if (typeof args.label === 'string' && args.label.trim()) {
-        const len = Math.hypot(bx - ax, by - ay) || 1
-        const nx = -(by - ay) / len, ny = (bx - ax) / len
-        const w = Math.min(240, args.label.length * 11 + 8)
-        const labelId = `shape:${randomId(9)}`
-        put[labelId] = { id: labelId, typeName: 'shape', type: 'text', x: (ax + bx) / 2 + nx * 18 - w / 2, y: (ay + by) / 2 + ny * 18 - 13, rot: 0, z: 1, props: { text: args.label.trim(), color, size: 's', font: 'sans', align: 'middle', autosize: false, w, scale: 1 } } as unknown as BoardRecord
+        // the caption is the arrow's own label: drawn at the middle of the line, it moves with it
+        ;(put[arrowId] as unknown as { props: Record<string, unknown> }).props.label = args.label.trim()
+        ;(put[arrowId] as unknown as { props: Record<string, unknown> }).props.labelSize = 's'
       }
       const targets = new Map<string, BoardRecord>([[from, a.record], [to, b.record]])
       for (const r of settleArrows(Object.values(put), (id) => targets.get(id))) put[r.id] = r
