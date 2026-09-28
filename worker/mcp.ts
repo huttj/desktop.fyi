@@ -59,7 +59,7 @@ const TOOLS = [
   {
     name: 'update_items',
     description:
-      'Change parts of things this person made, on their own desktop: move (x, y), turn (rot), restack (z), or merge new props (text, color, size, w, h, ...). Anything not given is kept. Moving barely counts as activity; editing text or props keeps a thing fresh. Returns what changed and what was refused.',
+      'Change parts of things this person made, on their own desktop: move (x, y), turn (rot), restack (z), or merge new props (text, color, size, w, h, ...). Anything not given is kept, as it is now, not as you last saw it. Pass expect: { x, y } when a move depends on where the thing was, and it is refused if someone moved it since. Moving barely counts as activity; editing text or props keeps a thing fresh. Returns what changed and what was refused.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -74,6 +74,7 @@ const TOOLS = [
               rot: { type: 'number' },
               z: { type: 'number' },
               props: { type: 'object', description: 'Merged over the record\'s props' },
+              expect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, description: 'Where you believe it is; refused (with where it is now) if it has moved since' },
             },
             required: ['id'],
           },
@@ -118,6 +119,12 @@ const TOOLS = [
     name: 'update_profile',
     description: 'Change this person\'s name or bio.',
     inputSchema: { type: 'object', properties: { name: { type: 'string', maxLength: 40 }, bio: { type: 'string', maxLength: 160 } } },
+  },
+  {
+    name: 'changes_since',
+    description:
+      'What changed on this person\'s own desktop since a time (ms since the epoch: the `now` from your last result): things made, edited or moved, as they stand now with bounds, and ids of things removed. People rearrange while you work: call this before adding near or changing anything you read earlier.',
+    inputSchema: { type: 'object', properties: { since: { type: 'number' } }, required: ['since'] },
   },
   {
     name: 'measure_items',
@@ -256,6 +263,12 @@ ties the arrows and keeps captions off the lines. To join two things already on 
 An arrow drawn between two boxes without startBind / endBind is not connected: it stays put when they move.
 Keep node labels short (a name, up to about five words); explanations go in a text block beside the diagram.
 
+The desktop is live. The person (and their visitors) move, edit and remove things while you work, and every
+result you get is a snapshot with a \`now\`. Before you add next to something or change it, look again:
+changes_since(now) is cheap and tells you what moved, changed or vanished; my_desktop is the whole picture.
+update_items merges into a thing as it is now, so a move you computed from an old position can land in the
+wrong place: pass expect: { x, y } and it will refuse, telling you where the thing is, if it has moved.
+
 Freshness: a thing ages a day per day; it fades from day 1, hides at day 3 (only its author sees it),
 and is archived at day 7. Editing it, or adding something next to it, keeps it (and its neighbours) fresh;
 moving barely counts. keep_items pins a thing so it stops aging.`
@@ -296,8 +309,10 @@ function fail(id: Rpc['id'], code: number, message: string, status = 200) {
   return new Response(JSON.stringify({ jsonrpc: '2.0', id: id ?? null, error: { code, message } }), { status, headers: { 'content-type': 'application/json' } })
 }
 
+/** A tool result. Objects carry `now`, the server's clock, to hand back to changes_since later. */
 function text(value: unknown, isError = false) {
-  return { content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }], isError }
+  const body = value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, unknown>), now: Date.now() } : value
+  return { content: [{ type: 'text', text: typeof body === 'string' ? body : JSON.stringify(body, null, 2) }], isError }
 }
 
 export async function handleMcp(request: IRequest, env: Env, _ctx: ExecutionContext, pathToken: string | null): Promise<Response> {
@@ -330,7 +345,7 @@ export async function handleMcp(request: IRequest, env: Env, _ctx: ExecutionCont
         protocolVersion: PROTOCOL,
         capabilities: { tools: {}, resources: {} },
         serverInfo: SERVER,
-        instructions: `You act as @${user.handle ?? user.id} on desktop.fyi and have their desktop in hand: read anything, and add, move, edit, remove, keep and freshen things on their own desktop only. Read my_desktop and record_reference before changing anything. dev_setup explains working on the client locally with real data.`,
+        instructions: `You act as @${user.handle ?? user.id} on desktop.fyi and have their desktop in hand: read anything, and add, move, edit, remove, keep and freshen things on their own desktop only. Read my_desktop and record_reference before changing anything. The desktop is live and shared: people move things while you work, so before adding near or changing something you read earlier, look again (changes_since with the \`now\` from your last result, or my_desktop), and pass expect on moves that depend on where a thing was. dev_setup explains working on the client locally with real data.`,
       })
     case 'notifications/initialized':
     case 'notifications/cancelled':
@@ -437,6 +452,12 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
       const result = await apply({ put, removed: [] } satisfies WireDiff, user.id, user.id)
       return text({ ...result, placed: await landed(result.accepted.put), desktop: here })
     }
+    case 'changes_since': {
+      const since = Number(args.since)
+      if (!Number.isFinite(since) || since <= 0) throw new Error('since is the `now` (ms since the epoch) from an earlier result')
+      const { items, removed } = (await mine().changedSince(since, user.id)) as { items: FeedItem[]; removed: string[] }
+      return text({ since, ...placed(items), removed })
+    }
     case 'measure_items': {
       const records = Array.isArray(args.records) ? (args.records as Array<Record<string, unknown>>) : []
       if (!records.length) throw new Error('Pass records')
@@ -473,6 +494,11 @@ async function callTool(env: Env, d: Db, user: UserRow, origin: string, name: st
           continue
         }
         const rec = found.record as ShapeRecord
+        const expect = u.expect && typeof u.expect === 'object' ? (u.expect as { x?: number; y?: number }) : null
+        if (expect && ((typeof expect.x === 'number' && Math.abs(expect.x - rec.x) > 2) || (typeof expect.y === 'number' && Math.abs(expect.y - rec.y) > 2))) {
+          refused.push({ id, why: `moved since you looked: it is now at ${Math.round(rec.x)}, ${Math.round(rec.y)}` })
+          continue
+        }
         const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
         const props = u.props && typeof u.props === 'object' ? { ...rec.props, ...(u.props as Record<string, unknown>) } : rec.props
         put[id] = { ...rec, x: num(u.x, rec.x), y: num(u.y, rec.y), rot: num(u.rot, rec.rot), z: num(u.z, rec.z), props } as unknown as BoardRecord

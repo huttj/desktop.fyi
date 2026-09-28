@@ -676,6 +676,31 @@ export class BoardDurableObject extends DurableObject<Env> {
     return out
   }
 
+  /**
+   * What changed since `since`, for an agent coming back to a desktop people may
+   * have rearranged: things made, edited or moved (moves are in the event log,
+   * which the daily pass clears, so within a day; edits and additions for
+   * ever), as they stand now, plus ids of things that were removed.
+   */
+  async changedSince(since: number, viewerId: string): Promise<{ items: FeedItem[]; removed: string[] }> {
+    const now = Date.now()
+    const ids = new Set<string>()
+    for (const r of this.sql.exec<{ item_id: string }>('SELECT DISTINCT item_id FROM events WHERE at >= ?', since).toArray()) ids.add(r.item_id)
+    for (const r of this.sql.exec<{ id: string }>("SELECT id FROM records WHERE state = 'live' AND is_asset = 0 AND (created_at >= ? OR edited_at >= ?)", since, since).toArray()) ids.add(r.id)
+    const items: FeedItem[] = []
+    for (const id of ids) {
+      const row = this.row(id)
+      if (!row || row.state !== 'live' || row.is_asset) continue
+      const meta = metaOf(row)
+      const age = provisionalAge(meta, now)
+      if (!canSee(meta, age, viewerId)) continue
+      items.push(this.feedItem(row, meta, age))
+    }
+    items.sort((a, b) => b.meta.editedAt - a.meta.editedAt)
+    const removed = this.sql.exec<{ id: string }>("SELECT id FROM records WHERE state = 'archived' AND is_asset = 0 AND archived_at >= ?", since).toArray().map((r) => r.id)
+    return { items, removed }
+  }
+
   /** Keep, release or freshen things through the API, as `userId` (the owner, or their author). Returns the metas that changed. */
   async markAs(ids: string[], userId: string, what: { pinned?: boolean; freshen?: boolean }): Promise<Record<string, ItemMeta>> {
     const metas = this.mark(ids.filter(isId).slice(0, 200), userId, what)
