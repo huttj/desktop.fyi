@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
-import { approxBounds, centreOf, clumpGroups, type Reach } from '../shared/bounds'
+import { approxBounds, centreOf, clumpGroups, touchBoxes, type Reach } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
 import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, SPREAD_CAP, canSee, falloff, provisionalAge } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
@@ -662,6 +662,36 @@ export class BoardDurableObject extends DurableObject<Env> {
     return (await this.recentGroups(0, 100000, { keepHighlights: true })).flatMap((g) => g.items)
   }
 
+  /** Everything this viewer can see, their own hidden things included, newest first, with records. */
+  async itemsFor(viewerId: string): Promise<FeedItem[]> {
+    const now = Date.now()
+    const rows = this.sql.exec<Row>("SELECT * FROM records WHERE state = 'live' AND is_asset = 0 ORDER BY edited_at DESC").toArray()
+    const out: FeedItem[] = []
+    for (const row of rows) {
+      const meta = metaOf(row)
+      const age = provisionalAge(meta, now)
+      if (!canSee(meta, age, viewerId)) continue
+      out.push(this.feedItem(row, meta, age))
+    }
+    return out
+  }
+
+  /** Keep, release or freshen things through the API, as `userId` (the owner, or their author). Returns the metas that changed. */
+  async markAs(ids: string[], userId: string, what: { pinned?: boolean; freshen?: boolean }): Promise<Record<string, ItemMeta>> {
+    const metas = this.mark(ids.filter(isId).slice(0, 200), userId, what)
+    if (Object.keys(metas).length) {
+      this.relayMetas(metas)
+      void this.ensureAlarm()
+    }
+    return metas
+  }
+
+  /** One live record as stored (any author), or null: for partial updates through the API. */
+  async recordOf(id: string): Promise<{ record: BoardRecord; author: string } | null> {
+    const row = this.sql.exec<Row>("SELECT * FROM records WHERE id = ? AND state = 'live'", id).toArray()[0]
+    return row ? { record: JSON.parse(row.data) as BoardRecord, author: row.author } : null
+  }
+
   /**
    * What the feed shows of this desktop: every clump with something made or
    * touched since `since`, whole, so a couple of new things beside an old
@@ -690,7 +720,7 @@ export class BoardDurableObject extends DurableObject<Env> {
       if (age >= HIDE_AT) continue
       visible.push({ row, meta, age, rec: JSON.parse(row.data) as ShapeRecord })
     }
-    const roots = clumpGroups(visible.map((v) => approxBounds(v.rec)), reach)
+    const roots = clumpGroups(visible.map((v) => touchBoxes(v.rec)), reach)
     const byRoot = new Map<number, typeof visible>()
     visible.forEach((v, i) => {
       const list = byRoot.get(roots[i]!) ?? []

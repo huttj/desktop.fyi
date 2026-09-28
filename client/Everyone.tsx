@@ -1,4 +1,4 @@
-import type { AssetRecord, Editor, ShapeRecord } from '@quickdrawjs/core'
+import { pageBounds, type AssetRecord, type Editor, type ShapeRecord } from '@quickdrawjs/core'
 import { Quickdraw, openUrl, useQuickdrawStore } from '@quickdrawjs/react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent } from 'react'
 import type { Box } from '../shared/bounds'
@@ -92,6 +92,8 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
   const [welcoming, setWelcoming] = useState(welcome)
   const [editor, setEditor] = useState<Editor | null>(null)
+  /** The thing under the pointer: its clump alone wears a chip, at that thing's foot. */
+  const [hover, setHover] = useState<string | null>(null)
   /** Each thing's age and clump, for the render hooks and for a click. */
   const ages = useRef(new Map<string, number>())
   const clumpOf = useRef(new Map<string, Laid>())
@@ -162,6 +164,15 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
     // Until the room arrives, the newest's spot (the origin) sits in the middle.
     const { w, h } = ed.viewSize()
     ed.setCamera({ x: w / 2, y: h / 2, z: 1 })
+    // The thing under the pointer wears its chip: who, where, when.
+    ed.container.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return
+      const r = ed.container.getBoundingClientRect()
+      const pt = ed.screenToPage(e.clientX - r.left, e.clientY - r.top)
+      const hit = ed.hitTest(pt.x, pt.y, { inside: true })
+      setHover(hit && clumpOf.current.has(hit.id) ? hit.id : null)
+    })
+    ed.container.addEventListener('pointerleave', () => setHover(null))
     // A tap (not a drag) on a thing visits it on its desktop; ⌘/ctrl or middle click opens a tab.
     let press: { x: number; y: number; at: number; newTab: boolean } | null = null
     ed.container.addEventListener('pointerdown', (e) => {
@@ -203,7 +214,7 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
   return (
     <div className="World" data-theme={theme} {...guards}>
       <Quickdraw store={store} theme={theme} grid="dots" watermark={false} onMount={onMount} />
-      {editor && <Chips editor={editor} laid={laid} people={people} meId={me?.id ?? null} />}
+      {editor && hover && <Chips editor={editor} laid={clumpOf.current.get(hover) ?? null} at={hover} people={people} meId={me?.id ?? null} />}
       <header className="World-header">
         <a className="World-wordmark" href="/">
           desktop.fyi
@@ -253,34 +264,30 @@ function hrefOf(l: Laid, people: People): string | null {
 }
 
 /**
- * A chip at each clump's foot: who, where, when; the caption unfolds on hover.
- * The chips sit in page coordinates on a layer that carries the camera, so a
- * pan moves them with the board and only the layer's transform changes.
+ * A chip at the foot of the clump under the pointer: who, where, when. It sits
+ * in page coordinates on a layer that carries the camera, so a pan moves it
+ * with the board. Nothing else is decorated: the room reads as a desktop.
  */
-function Chips({ editor, laid, people, meId }: { editor: Editor; laid: Laid[]; people: People; meId: string | null }) {
+function Chips({ editor, laid: l, at, people, meId }: { editor: Editor; laid: Laid | null; at: string; people: People; meId: string | null }) {
   const [, rerender] = useReducer((n: number) => n + 1, 0)
   useEffect(() => editor.on('camera', rerender), [editor])
-  const chips = useMemo(
-    () =>
-      laid.map((l) => {
-        const newest = l.group.items[0]!
-        const by = nameOf(people, newest.meta.by, meId)
-        const where = newest.meta.by === l.group.boardId ? '' : ` on ${nameOf(people, l.group.boardId, meId)}'s desktop`
-        const count = l.group.items.length > 1 ? ` · ${l.group.items.length} things` : ''
-        const title = `${by}${where} · ${relativeTime(l.group.editedAt)}${count}`
-        return (
-          <a key={newest.id} className="World-by" href={hrefOf(l, people) ?? '#'} title={title} style={{ translate: `${l.box.x}px ${l.box.y + l.box.h}px` }} draggable={false}>
-            <Avatar id={newest.meta.by} name={nameOf(people, newest.meta.by)} avatar={people.get(newest.meta.by)?.avatar ?? null} className="Avatar--small" />
-            <span className="World-caption">{title}</span>
-          </a>
-        )
-      }),
-    [laid, people, meId]
-  )
+  if (!l) return null
+  const newest = l.group.items[0]!
+  // at the foot of the thing under the pointer (its record on the board is already shifted into the room)
+  const shape = editor.store.get(at) as ShapeRecord | undefined
+  const foot = shape ? pageBounds(shape) : null
+  const spot = foot ? { x: foot.x, y: foot.y + foot.h } : { x: l.box.x, y: l.box.y + l.box.h }
+  const by = nameOf(people, newest.meta.by, meId)
+  const where = newest.meta.by === l.group.boardId ? '' : ` on ${nameOf(people, l.group.boardId, meId)}'s desktop`
+  const count = l.group.items.length > 1 ? ` · ${l.group.items.length} things` : ''
+  const title = `${by}${where} · ${relativeTime(l.group.editedAt)}${count}`
   const cam = editor.camera
   return (
     <div className="World-chips" style={{ transform: `translate(${cam.x * cam.z}px, ${cam.y * cam.z}px) scale(${cam.z})`, ['--iz' as string]: 1 / cam.z }}>
-      {chips}
+      <a className="World-by" href={hrefOf(l, people) ?? '#'} style={{ translate: `${spot.x}px ${spot.y}px` }} draggable={false}>
+        <Avatar id={newest.meta.by} name={nameOf(people, newest.meta.by)} avatar={people.get(newest.meta.by)?.avatar ?? null} className="Avatar--small" />
+        <span className="World-caption">{title}</span>
+      </a>
     </div>
   )
 }

@@ -19,7 +19,7 @@ Your desktop, on the web. Paste anything onto an infinite canvas. Friends can ad
 
 ## API keys and MCP
 
-Under **Profile → API keys** anyone can mint a personal access key. It acts as them: reads everything they can see, writes only to their own desktop and account (never admin, never another desktop's board). Send it as `Authorization: Bearer dfyi_…`, or paste its MCP link (`https://desktop.fyi/mcp/<key>`) into Claude: `claude mcp add --transport http desktop-fyi <link>`. The MCP server (`worker/mcp.ts`, plain JSON-RPC over HTTP) offers `whoami`, `everyone`, `desktop`, `feed`, `put_items`, `update_profile` and `dev_setup`, which explains the next section.
+Under **Profile → API keys** anyone can mint a personal access key. It acts as them: reads everything they can see, writes only to their own desktop and account (never admin, never another desktop's board). Send it as `Authorization: Bearer dfyi_…`. As an MCP server for Claude: URL `https://desktop.fyi/mcp`, no sign-in, with that header (in claude.ai, a custom connector with one request header; in Claude Code, `claude mcp add --transport http desktop-fyi https://desktop.fyi/mcp --header "Authorization: Bearer dfyi_…"`). `https://desktop.fyi/mcp/<key>` works too, for clients that cannot send a header, at the cost of the key showing in the URL. The MCP server (`worker/mcp.ts`, plain JSON-RPC over HTTP) gives an agent the person's own desktop in hand: `my_desktop`, `put_items`, `update_items` (move, turn, restack, merge props), `remove_items`, `keep_items`, `freshen_items`, `put_image`, `update_profile`, plus `desktop`, `everyone`, `feed`, `whoami`, `record_reference` and `dev_setup`, which explains the next section.
 
 ## Develop
 

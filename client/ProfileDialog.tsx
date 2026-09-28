@@ -150,7 +150,7 @@ function ApiKeys() {
     }
   }
 
-  const mcpLink = minted ? `${window.location.origin}/mcp/${minted.token}` : null
+  const mcpUrl = `${window.location.origin}/mcp`
   return (
     <section className="Keys">
       <button type="button" className="Link" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -158,7 +158,7 @@ function ApiKeys() {
       </button>
       {open && (
         <div className="Keys-body">
-          <p className="Muted">A key reads everything you can see and writes only to your desktop. Paste its MCP link into Claude, or send it as a bearer token.</p>
+          <p className="Muted">A key reads everything you can see and writes only to your desktop. Give it to Claude as an MCP connector, or send it as a bearer token.</p>
           {keys === null && <p className="Muted">Loading…</p>}
           {keys?.map((t) => (
             <div key={t.id} className="Keys-row">
@@ -177,10 +177,15 @@ function ApiKeys() {
                 <strong>{minted.label}</strong>: copy this now, it will not show again.
               </p>
               <code className="Keys-secret">{minted.token}</code>
-              <p className="Muted">As an MCP server for Claude:</p>
-              <code className="Keys-secret">{mcpLink}</code>
+              <p className="Muted">
+                In claude.ai, add a custom connector: URL <code>{mcpUrl}</code>, no sign-in, and one request header, <code>Authorization</code> set to:
+              </p>
+              <code className="Keys-secret">Bearer {minted.token}</code>
               <p className="Muted">In Claude Code:</p>
-              <code className="Keys-secret">claude mcp add --transport http desktop-fyi {mcpLink}</code>
+              <code className="Keys-secret">
+                claude mcp add --transport http desktop-fyi {mcpUrl} --header "Authorization: Bearer {minted.token}"
+              </code>
+              <p className="Muted">For scripts, the same header on any /api call.</p>
             </div>
           )}
           <form className="Form Form--row" onSubmit={mint}>

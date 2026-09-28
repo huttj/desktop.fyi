@@ -109,16 +109,37 @@ export function clumped(a: Box, b: Box, { gap, sizeReach }: Reach = { gap: CLUST
   return gapBetween(a, b) <= reach
 }
 
-/** Which of these boxes clump with which, transitively: the index of each one's group root. */
-export function clumpGroups(boxes: Box[], reach?: Reach): number[] {
-  const parent = boxes.map((_, i) => i)
+/**
+ * The boxes a thing touches with. Most things are their box; a line or arrow
+ * is only its two ends (and the middle of its curve), since the box around a
+ * long diagonal one is a huge empty rectangle that would swallow bystanders.
+ */
+export function touchBoxes(rec: BoardRecord): Box[] {
+  if (rec.typeName === 'shape' && (rec.type === 'arrow' || rec.type === 'line')) {
+    const s = rec as ShapeRecord
+    const p = s.props ?? {}
+    const dx = num(p.dx), dy = num(p.dy), bend = num(p.bend)
+    const dot = (x: number, y: number): Box => ({ x: s.x + x - 4, y: s.y + y - 4, w: 8, h: 8 })
+    const ends = [dot(0, 0), dot(dx, dy)]
+    if (bend) {
+      const len = Math.hypot(dx, dy) || 1
+      ends.push(dot(dx / 2 + (-dy / len) * bend, dy / 2 + (dx / len) * bend))
+    }
+    return ends
+  }
+  return [approxBounds(rec)]
+}
+
+/** Which of these things clump with which, transitively: the index of each one's group root. Each thing is one or more boxes. */
+export function clumpGroups(things: Box[][], reach?: Reach): number[] {
+  const parent = things.map((_, i) => i)
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)))
-  for (let i = 0; i < boxes.length; i++) {
-    for (let j = i + 1; j < boxes.length; j++) {
-      if (clumped(boxes[i]!, boxes[j]!, reach)) parent[find(i)] = find(j)
+  for (let i = 0; i < things.length; i++) {
+    for (let j = i + 1; j < things.length; j++) {
+      if (things[i]!.some((a) => things[j]!.some((b) => clumped(a, b, reach)))) parent[find(i)] = find(j)
     }
   }
-  return boxes.map((_, i) => find(i))
+  return things.map((_, i) => find(i))
 }
 
 export interface Box {

@@ -1935,15 +1935,9 @@ html {
 }
 
 .World-caption {
-  display: none;
   padding-right: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.World-by:hover .World-caption,
-.World-by:focus-visible .World-caption {
-  display: inline;
 }
 
 .World-header {
