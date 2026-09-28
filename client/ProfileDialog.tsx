@@ -150,7 +150,7 @@ function ApiKeys() {
     }
   }
 
-  const mcpUrl = `${window.location.origin}/mcp`
+  const mcpLink = minted ? `${window.location.origin}/mcp?token=${minted.token}` : ''
   return (
     <section className="Keys">
       <button type="button" className="Link" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -177,15 +177,13 @@ function ApiKeys() {
                 <strong>{minted.label}</strong>: copy this now, it will not show again.
               </p>
               <code className="Keys-secret">{minted.token}</code>
-              <p className="Muted">
-                In claude.ai, add a custom connector: URL <code>{mcpUrl}</code>, no sign-in, and one request header, <code>Authorization</code> set to:
-              </p>
-              <code className="Keys-secret">Bearer {minted.token}</code>
+              <p className="Muted">Paste this into Claude as a custom connector (no sign-in):</p>
+              <code className="Keys-secret">{mcpLink}</code>
               <p className="Muted">In Claude Code:</p>
-              <code className="Keys-secret">
-                claude mcp add --transport http desktop-fyi {mcpUrl} --header "Authorization: Bearer {minted.token}"
-              </code>
-              <p className="Muted">For scripts, the same header on any /api call.</p>
+              <code className="Keys-secret">claude mcp add --transport http desktop-fyi "{mcpLink}"</code>
+              <p className="Muted">
+                For scripts, send it as <code>Authorization: Bearer {minted.token.slice(0, 10)}…</code> on any /api call (and /mcp accepts that too).
+              </p>
             </div>
           )}
           <form className="Form Form--row" onSubmit={mint}>

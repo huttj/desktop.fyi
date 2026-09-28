@@ -11,7 +11,7 @@ import { board, buildEveryone, buildFeed, profileOf } from './views'
 /**
  * An MCP server on the worker, over plain HTTP JSON-RPC (the Streamable HTTP
  * transport, answering each request with JSON: nothing here streams). A
- * personal access token in the path, or a bearer header, says who it acts as.
+ * personal access token (?token=, in the path, or a bearer header) says who it acts as.
  * The tools read what that person can read and write only to their own
  * desktop and account. Stateless: every call carries the token.
  */
@@ -196,8 +196,10 @@ export async function handleMcp(request: IRequest, env: Env, _ctx: ExecutionCont
   if (request.method === 'DELETE') return new Response(null, { status: 200 })
   if (request.method !== 'POST') return new Response(null, { status: 405, headers: { allow: 'POST, DELETE' } })
 
-  const token = pathToken && TOKEN_RE.test(pathToken) ? pathToken : readBearer(request)
-  if (!token) return fail(null, -32000, 'A personal access token is required: /mcp/<key>, or Authorization: Bearer <key>', 401)
+  // The key comes as ?token=, in the path, or as a bearer header: whichever the client can send.
+  const query = new URL(request.url).searchParams.get('token')
+  const token = [pathToken, query].find((t): t is string => !!t && TOKEN_RE.test(t)) ?? readBearer(request)
+  if (!token) return fail(null, -32000, 'A personal access token is required: /mcp?token=<key>, or Authorization: Bearer <key>', 401)
   const d = new Db(env.DB)
   const user = await d.userByApiToken(token)
   if (!user) return fail(null, -32000, 'That key is unknown or revoked', 401)
