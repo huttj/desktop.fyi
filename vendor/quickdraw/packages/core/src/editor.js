@@ -7,7 +7,7 @@ import { Store, newId } from './store.js'
 import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR, FADE_TONE, fadedTheme } from './palette.js'
 import {
   lineHeads, typeForHeads,
-  localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits, tintedImage,
+  localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits, tintedImage, tintedFrame, assetMedia,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, imageFrame,
   mapMarks, textLinkAt, textHitAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark, arrowLabelLayout, arrowMidpoint, ARROW_LABEL_PAD } from './shapes.js'
 import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith } from './geometry.js'
@@ -15,6 +15,7 @@ import { sceneToSvg } from './svg.js'
 import { BINDABLE, insideShape, anchorAt, rebindArrow, remapBindings } from './bindings.js'
 import { parseTldrawClipboard, convertTldrawContent } from './tldraw.js'
 import { TextSurface } from './textedit.js'
+import { isVideoAsset, guessMime, isMediaType, readVideoSize, dataTransferMedia, dragCarriesMedia } from './media.js'
 
 const ZOOM_MIN = 0.02
 const ZOOM_MAX = 32
@@ -799,7 +800,12 @@ export class Editor {
     this._onKeyUp = (e) => this._keyUp(e)
     this._onDblClick = (e) => this._dblClick(e)
     this._onDrop = (e) => this._drop(e)
-    this._onDragOver = (e) => { e.preventDefault(); e.stopPropagation() }
+    this._onDragOver = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (this.acceptsDrop(e.dataTransfer)) { e.dataTransfer.dropEffect = 'copy'; this.showDropTarget() }
+      else if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    }
     this._onPaste = (e) => this._paste(e)
     this._onContextMenu = (e) => this._contextMenu(e)
     c.addEventListener('contextmenu', this._onContextMenu)
@@ -2756,9 +2762,9 @@ export class Editor {
         const items = await cb.read()
         types = items.flatMap((i) => i.types)
         for (const it of items) {
-          const t = it.types.find((t2) => t2.startsWith('image/'))
+          const t = it.types.find((t2) => isMediaType(t2))
           if (t) {
-            await this.importImageBlobs([await it.getType(t)])
+            await this.importMediaBlobs([await it.getType(t)])
             return { what: 'image', types }
           }
         }
@@ -2787,7 +2793,7 @@ export class Editor {
   }
   // clipboard text: our own payload, tldraw's (its text fallback), or plain
   // words, which land as a text shape mid-view
-  async _pasteText(text) {
+  async _pasteText(text, at) {
     if (!text || !text.trim()) return false
     try {
       const data = JSON.parse(text)
@@ -2803,7 +2809,8 @@ export class Editor {
     })
     // centre it on the view now that it has a size
     const b = pageBounds(this.store.get(id))
-    this.store.update(id, { x: vp.x + vp.w / 2 - b.w / 2, y: vp.y + vp.h / 2 - b.h / 2 })
+    const c = at || { x: vp.x + vp.w / 2, y: vp.y + vp.h / 2 }
+    this.store.update(id, { x: c.x - b.w / 2, y: c.y - b.h / 2 })
     if (this.tool !== 'select') this.setTool('select')
     this.setSelection([id])
     return true
@@ -2820,7 +2827,7 @@ export class Editor {
       try {
         const blob = await (await fetch(a.src, { mode: 'cors' })).blob()
         const img = await readImage(blob)
-        a.src = img.src; a.w = img.w; a.h = img.h
+        a.src = await this.assetSrc(img.blob); a.w = img.w; a.h = img.h
       } catch (e) { console.warn('tldraw image not fetched, keeping its URL', a.src, e) }
     }))
     return this._pasteShapes({ shapes, assets }, { center: at || 'view' })
@@ -2870,27 +2877,93 @@ export class Editor {
   _paste(e) {
     if (this.readonly || this.editing) return
     const cd = e.clipboardData
-    const files = [...(cd?.files || [])].filter((f) => f.type.startsWith('image/'))
-    if (files.length) { e.preventDefault(); this.importImageBlobs(files); return }
+    const files = [...(cd?.files || [])].filter((f) => isMediaType(guessMime(f.name, f.type)))
+    if (files.length) { e.preventDefault(); this.importMediaBlobs(files); return }
     const html = cd?.getData?.('text/html') || ''
     const text = cd?.getData?.('text/plain') || ''
     if (!html && !text) return
     e.preventDefault()
     this._pasteHtml(html).then((done) => (done ? null : this._pasteText(text))).catch((err) => console.warn('paste failed', err))
   }
+  // Anything dragged onto the board: picture and video files, or a picture
+  // or video dragged out of another page, land where they're let go. A link
+  // that isn't media lands as its address, in text. The host can hand drops
+  // that land on its own chrome over the board to importDataTransfer.
+  acceptsDrop(dt) {
+    return !this.readonly && dragCarriesMedia(dt)
+  }
+  // the board's drop outline, for as long as drag-overs keep coming
+  showDropTarget() {
+    this.container.classList.add('qd-drop-target')
+    clearTimeout(this._dropTimer)
+    this._dropTimer = setTimeout(() => this.container.classList.remove('qd-drop-target'), 160)
+  }
   _drop(e) {
-    if (this.readonly) return
-    const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/'))
-    if (!files.length) return
     e.preventDefault()
     e.stopPropagation()
     const s = this._evPoint(e)
-    this.importImageBlobs(files, this.screenToPage(s.x, s.y))
+    this.importDataTransfer(e.dataTransfer, this.screenToPage(s.x, s.y))
   }
-  async importImageBlobs(blobs, at) {
-    for (const blob of blobs) {
+  async importDataTransfer(dt, at) {
+    clearTimeout(this._dropTimer)
+    this.container.classList.remove('qd-drop-target')
+    if (this.readonly || !dt) return []
+    const { files, urls } = dataTransferMedia(dt)
+    if (files.length) return this.importMediaBlobs(files, at)
+    if (urls.length) return this.importMediaUrls(urls, at)
+    const text = dt.getData?.('text/plain') || ''
+    if (text.trim()) return (await this._pasteText(text, at)) ? [...this.selection] : []
+    return []
+  }
+  // Fetch each address and put what comes back on the board; one that can't
+  // be fetched as a picture or video lands as its address, in text.
+  async importMediaUrls(urls, at) {
+    const blobs = []
+    const misses = []
+    for (const url of urls) {
       try {
-        const { src, w, h } = await readImage(blob)
+        const blob = await this.fetchMedia(url)
+        const type = guessMime(url, blob?.type)
+        if (!blob || !isMediaType(type)) throw new Error(`not a picture or video (${blob?.type || 'no type'})`)
+        blobs.push(blob.type === type ? blob : new Blob([blob], { type }))
+      } catch (e) {
+        console.warn('dropped address not fetched', url, e)
+        misses.push(url)
+      }
+    }
+    const ids = blobs.length ? await this.importMediaBlobs(blobs, at) : []
+    if (!ids.length && misses.length && (await this._pasteText(misses.join('\n'), at))) return [...this.selection]
+    return ids
+  }
+  // Host hook: how a dropped address becomes bytes. A page elsewhere only
+  // hands them over if it allows CORS; a host with a server can fetch the
+  // rest itself.
+  async fetchMedia(url) {
+    return (await fetch(url, { mode: 'cors' })).blob()
+  }
+  // Host hook: the `src` a new asset keeps for its bytes. A data URL by
+  // default, so the document carries its pictures wherever it goes; a host
+  // that uploads assets can return an object URL and swap it for the
+  // upload's address once it's there.
+  async assetSrc(blob) {
+    return new Promise((res, rej) => {
+      const fr = new FileReader()
+      fr.onload = () => res(fr.result)
+      fr.onerror = () => rej(fr.error)
+      fr.readAsDataURL(blob)
+    })
+  }
+  // Pictures, GIFs and videos onto the board: at `at` (each next one a
+  // little down and right), or mid-view; selected. Resolves with the new
+  // shape ids; one that can't be read is skipped.
+  async importMediaBlobs(blobs, at) {
+    const ids = []
+    for (const file of blobs) {
+      try {
+        const mime = guessMime(file.name, file.type)
+        const typed = file.type === mime ? file : new Blob([file], { type: mime })
+        const { blob, w, h } = mime.startsWith('video/') ? { blob: typed, ...(await readVideoSize(typed)) } : await readImage(typed)
+        const src = await this.assetSrc(blob)
         const vp = this.viewportPageBounds()
         // land at a comfortable size: at most ~60% of the view
         const scale = Math.min(1, (vp.w * 0.6) / w, (vp.h * 0.6) / h)
@@ -2899,25 +2972,48 @@ export class Editor {
         const cx = at ? at.x : vp.x + vp.w / 2
         const cy = at ? at.y : vp.y + vp.h / 2
         const assetId = newId('asset')
+        const id = newId()
         this.store.transact(() => {
-          this.store.put({ id: assetId, typeName: 'asset', src, w, h })
+          this.store.put({ id: assetId, typeName: 'asset', src, w, h, mime: blob.type || mime })
           this.store.put({
-            id: newId(), typeName: 'shape', type: 'image',
+            id, typeName: 'shape', type: 'image',
             x: cx - pw / 2, y: cy - ph / 2, rot: 0, z: this.store.maxZ() + 1,
             props: { w: pw, h: ph, assetId },
           })
         })
+        ids.push(id)
         if (at) { at = { x: at.x + 24, y: at.y + 24 } }
-      } catch (e2) { console.warn('image import failed', e2) }
+      } catch (e2) { console.warn('media import failed', e2) }
     }
+    if (ids.length) {
+      if (this.tool !== 'select') this.setTool('select')
+      this.setSelection(ids)
+    }
+    return ids
   }
+  importImageBlobs(blobs, at) { return this.importMediaBlobs(blobs, at) }
   pickImage() {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = 'image/*'
+    input.accept = 'image/*,video/*'
     input.multiple = true
-    input.onchange = () => { if (input.files?.length) this.importImageBlobs([...input.files]) }
+    input.onchange = () => { if (input.files?.length) this.importMediaBlobs([...input.files]) }
     input.click()
+  }
+  // A GIF or video shape's player, for this viewer only: { kind: 'gif' |
+  // 'video', paused, muted (videos), setPaused(bool), setMuted(bool) }.
+  // Null for a still picture, or before the player has loaded.
+  mediaOf(shapeId) {
+    const s = this.store.get(shapeId)
+    const m = s?.type === 'image' && s.props.assetId ? assetMedia(s.props.assetId) : null
+    if (!m) return null
+    return {
+      kind: m.kind,
+      paused: m.paused,
+      muted: m.kind === 'video' ? m.muted : true,
+      setPaused: (p) => { m.setPaused(p); this.requestRender() },
+      setMuted: (v) => { if (m.kind === 'video') m.muted = v },
+    }
   }
 
   // ---- export --------------------------------------------------------------
@@ -2962,7 +3058,7 @@ export class Editor {
     for (const s of shapes) {
       if (s.type !== 'image' || !s.props.assetId) continue
       const a = this.store.asset(s.props.assetId)
-      if (!a) continue
+      if (!a || isVideoAsset(a)) continue
       waits.push(new Promise((res) => {
         const img = new Image()
         img.onload = res
@@ -3015,6 +3111,8 @@ export class Editor {
         hideText: hideEditing && this.editing?.id === s.id ? this.editing.field : null,
         // the whole picture ghosts around the crop window — on screen only
         cropPreview: hideEditing && this.cropping?.id === s.id,
+        // GIFs and videos play while the screen draws them (see media.js)
+        live: hideEditing,
         onAssetLoad: () => this.requestRender(),
       }
       if (alpha < 1) { ctx.save(); ctx.globalAlpha *= alpha }
@@ -3031,7 +3129,7 @@ export class Editor {
   // it costs no more than a fresh one.
   _drawFaded(ctx, s, opts, fade) {
     const theme = fadedTheme(opts.theme, fade)
-    const imageTint = s.type === 'image' ? (img) => tintedImage(img, FADE_TONE, 1 - fade) : undefined
+    const imageTint = s.type === 'image' ? (img, live) => (live ? tintedFrame : tintedImage)(img, FADE_TONE, 1 - fade) : undefined
     drawShape(ctx, s, { ...opts, theme, imageTint })
   }
 
@@ -3538,6 +3636,7 @@ export class Editor {
     c.removeEventListener('keydown', this._onKeyDown)
     c.removeEventListener('keyup', this._onKeyUp)
     c.removeEventListener('dblclick', this._onDblClick)
+    clearTimeout(this._dropTimer)
     c.removeEventListener('drop', this._onDrop)
     c.removeEventListener('dragover', this._onDragOver)
     c.removeEventListener('paste', this._onPaste)
@@ -3563,7 +3662,8 @@ export function openUrl(href) {
   try { window.open(href, '_blank', 'noopener,noreferrer') } catch {}
 }
 
-// decode + gently downscale an imported image, return a dataURL asset
+// decode + gently downscale an imported image: { blob, w, h }. A GIF keeps
+// its own bytes whatever its size (a redraw would keep one frame).
 async function readImage(blob) {
   const url = URL.createObjectURL(blob)
   try {
@@ -3576,20 +3676,16 @@ async function readImage(blob) {
     let { width: w, height: h } = img
     const MAX = 2048
     const k = Math.min(1, MAX / Math.max(w, h))
-    if (k < 1 || blob.type === 'image/heic') {
+    if ((k < 1 && blob.type !== 'image/gif') || blob.type === 'image/heic') {
       const c = document.createElement('canvas')
       c.width = Math.round(w * k)
       c.height = Math.round(h * k)
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
       const isPhoto = blob.type === 'image/jpeg' || blob.size > 600_000
-      return { src: c.toDataURL(isPhoto ? 'image/jpeg' : 'image/png', 0.85), w: c.width, h: c.height }
+      const out = await new Promise((res) => c.toBlob(res, isPhoto ? 'image/jpeg' : 'image/png', 0.85))
+      if (out) return { blob: out, w: c.width, h: c.height }
     }
-    const src = await new Promise((res) => {
-      const fr = new FileReader()
-      fr.onload = () => res(fr.result)
-      fr.readAsDataURL(blob)
-    })
-    return { src, w, h }
+    return { blob, w, h }
   } finally {
     URL.revokeObjectURL(url)
   }

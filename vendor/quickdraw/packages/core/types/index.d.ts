@@ -101,13 +101,25 @@ export interface ShapeRecord {
   props: Record<string, any>
 }
 
-/** An image asset record (dataURL source shared by image shapes). */
+/** A picture, GIF or video shared by image shapes (a data URL, or wherever the host keeps it). */
 export interface AssetRecord {
   id: string
   typeName: 'asset'
   src: string
   w: number
   h: number
+  /** The media type (`image/gif`, `video/webm`…). Absent on older records: the src's type or extension says. */
+  mime?: string
+}
+
+/** A GIF or video shape's player, for this viewer only (nothing here is in the document). */
+export interface MediaControls {
+  kind: 'gif' | 'video'
+  paused: boolean
+  /** Videos start muted; a GIF is always true. */
+  muted: boolean
+  setPaused(paused: boolean): void
+  setMuted(muted: boolean): void
 }
 
 export type BoardRecord = ShapeRecord | AssetRecord
@@ -259,6 +271,27 @@ export interface TldrawContent {
   rootShapeIds?: string[]
   schema?: any
 }
+export interface GifFrame { x: number; y: number; w: number; h: number; delay: number; disposal: number; transparent: number; palette: Uint8Array; interlaced: boolean; minCodeSize: number; data: Uint8Array }
+/** A GIF's frames, still compressed, or null when the bytes aren't a GIF. */
+export function parseGif(bytes: Uint8Array | ArrayBuffer): { w: number; h: number; frames: GifFrame[] } | null
+/** GIF's LZW: `count` palette indices. */
+export function lzwDecode(minCodeSize: number, data: Uint8Array, count: number): Uint8Array
+/** Plays a parsed GIF into an RGBA buffer, one frame per step() (which returns the frame's delay in ms). */
+export class GifAnimator {
+  constructor(gif: { w: number; h: number; frames: GifFrame[] })
+  readonly w: number
+  readonly h: number
+  readonly pixels: Uint8ClampedArray
+  readonly index: number
+  readonly frameCount: number
+  step(): number
+}
+export function isVideoAsset(asset: AssetRecord | null | undefined): boolean
+export function isGifAsset(asset: AssetRecord | null | undefined): boolean
+/** A file's media type, from its name when its own type is missing or generic. */
+export function guessMime(name?: string, type?: string): string
+/** The media a drag carries: files, else addresses of pictures/videos (or links). */
+export function dataTransferMedia(dt: DataTransfer | null): { files: File[]; urls: string[] }
 /** tldraw's content from the HTML (or text) it put on the clipboard, or null when it isn't tldraw's. */
 export function parseTldrawClipboard(text: string): TldrawContent | null
 /** tldraw's rich text → our text plus marks. */
@@ -526,8 +559,26 @@ export class Editor {
    * assets are fetched into data URLs. Resolves with the new ids.
    */
   importTldraw(content: TldrawContent, opts?: { at?: { x: number; y: number } }): Promise<string[]>
-  importImageBlobs(blobs: Blob[] | File[], at?: { x: number; y: number }): Promise<void>
+  /** Pictures, GIFs and videos onto the board, at `at` (else mid-view), selected. Resolves with the new shape ids. */
+  importMediaBlobs(blobs: Blob[] | File[], at?: { x: number; y: number }): Promise<string[]>
+  /** Same as importMediaBlobs (the older name). */
+  importImageBlobs(blobs: Blob[] | File[], at?: { x: number; y: number }): Promise<string[]>
+  /** Fetch each address (through `fetchMedia`) and put the pictures and videos on the board; an address that isn't one lands as text. */
+  importMediaUrls(urls: string[], at?: { x: number; y: number }): Promise<string[]>
+  /** What a drag carries — files, a picture or video dragged out of another page, a link, words — onto the board at `at`. Hosts hand it drops that land on their own chrome. */
+  importDataTransfer(dt: DataTransfer | null, at?: { x: number; y: number }): Promise<string[]>
+  /** Whether a drag carries anything the board could take. */
+  acceptsDrop(dt: DataTransfer | null): boolean
+  /** Outline the board as a drop target for a moment (call it on each dragover). */
+  showDropTarget(): void
+  /** Host hook: how a dropped address becomes bytes (default: a CORS fetch). */
+  fetchMedia(url: string): Promise<Blob>
+  /** Host hook: the `src` a new asset keeps for its bytes (default: a data URL). */
+  assetSrc(blob: Blob): Promise<string>
+  /** The file picker: pictures, GIFs and videos. */
   pickImage(): void
+  /** A GIF or video shape's player controls, or null for a still (or before it has loaded). */
+  mediaOf(shapeId: string): MediaControls | null
 
   /** Render the drawing to a PNG blob (null when the board is empty). */
   exportImage(opts?: { background?: boolean; scale?: number; margin?: number; ids?: Set<string> | null }): Promise<Blob | null>

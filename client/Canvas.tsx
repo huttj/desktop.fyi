@@ -1,5 +1,5 @@
-import { Quickdraw, openUrl, useQuickdrawStore, type Editor, type GridId, type SnapSettings, type ThemeId } from '@quickdrawjs/react'
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { Quickdraw, openUrl, pageBounds, useQuickdrawStore, type Editor, type GridId, type SnapSettings, type ThemeId } from '@quickdrawjs/react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Peer } from '../shared/protocol'
 import type { ItemMeta, Me, Profile } from '../shared/types'
 import { api } from './api'
@@ -19,6 +19,7 @@ import { navigate } from './navigate'
 import { nameOf, type People } from './people'
 import { BoardSync, type SyncStatus } from './sync'
 import { TopBar } from './TopBar'
+import { MAX_UPLOAD_BYTES } from './uploads'
 import { applyView, mirrorViewToHash, parseView } from './viewLink'
 
 const GRIDS: GridId[] = ['none', 'lines', 'ruled', 'dots', 'crosses', 'iso']
@@ -315,6 +316,7 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
       // Fingers start with the hand: panning first, moving things on purpose.
       if (window.matchMedia('(pointer: coarse)').matches) ed.setTool('hand')
       ed.on('scribbles', () => syncRef.current?.sendLaser(ed.getScribbles()))
+      installMediaImport(ed, setNotice)
     },
     [me, frame]
   )
@@ -412,8 +414,32 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   const onPointerLeave = () => syncRef.current?.sendCursor(null)
 
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation()
+  // A file let go over a visitor's board would open in the tab, leaving the desktop.
+  const refuseDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
   const guards = me
-    ? {}
+    ? {
+        // The board takes drops on itself; these catch the ones let go over the chrome that
+        // floats on it (the header, the top bar, a picture's byline) and land them beneath.
+        onDragOver: (e: DragEvent<HTMLDivElement>) => {
+          const ed = editorRef.current
+          if (!ed || e.defaultPrevented || ownsDrop(e.target)) return
+          e.preventDefault()
+          const onBoard = !offBoard(e.target) && ed.acceptsDrop(e.dataTransfer)
+          e.dataTransfer.dropEffect = onBoard ? 'copy' : 'none'
+          if (onBoard) ed.showDropTarget()
+        },
+        onDrop: (e: DragEvent<HTMLDivElement>) => {
+          const ed = editorRef.current
+          if (!ed || e.defaultPrevented || ownsDrop(e.target)) return
+          e.preventDefault()
+          if (offBoard(e.target)) return
+          const r = ed.container.getBoundingClientRect()
+          void ed.importDataTransfer(e.dataTransfer, ed.screenToPage(e.clientX - r.left, e.clientY - r.top)).then((ids) => keepInView(ed, ids, panelInset().top))
+        },
+      }
     : {
         onKeyDownCapture: (e: KeyboardEvent<HTMLDivElement>) => {
           const meta = e.metaKey || e.ctrlKey
@@ -421,8 +447,8 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
           if (!zoom) e.stopPropagation()
         },
         onPasteCapture: stop,
-        onDropCapture: stop,
-        onDragOverCapture: stop,
+        onDropCapture: refuseDrop,
+        onDragOverCapture: refuseDrop,
         onContextMenuCapture: stop,
       }
 
@@ -538,5 +564,84 @@ function installPasteReporting(ed: Editor, notify: (message: string) => void) {
       notify(`Paste failed: ${[err?.name, err?.message ?? String(r.error)].filter(Boolean).join(': ')}`)
     }
     return r
+  }
+}
+
+/** What was let go over the chrome lands beneath it: slide it down and in until it all shows. */
+function keepInView(ed: Editor, ids: string[], top: number) {
+  if (!ids.length) return
+  const vp = ed.viewportPageBounds()
+  const margin = 12 / ed.camera.z
+  let b: { x: number; y: number; w: number; h: number } | null = null
+  for (const id of ids) {
+    const s = ed.store.get(id)
+    if (!s || s.typeName !== 'shape') continue
+    const sb = pageBounds(s)
+    b = b ? { x: Math.min(b.x, sb.x), y: Math.min(b.y, sb.y), w: Math.max(b.x + b.w, sb.x + sb.w) - Math.min(b.x, sb.x), h: Math.max(b.y + b.h, sb.y + sb.h) - Math.min(b.y, sb.y) } : sb
+  }
+  if (!b) return
+  const minX = vp.x + margin
+  const minY = vp.y + top / ed.camera.z + margin
+  const dx = b.x < minX ? minX - b.x : Math.min(0, vp.x + vp.w - margin - (b.x + b.w))
+  const dy = b.y < minY ? minY - b.y : Math.min(0, vp.y + vp.h - margin - (b.y + b.h))
+  if (!dx && !dy) return
+  ed.store.transact(() => {
+    for (const id of ids) {
+      const s = ed.store.get(id)
+      if (s && s.typeName === 'shape') ed.store.update(id, { x: s.x + dx, y: s.y + dy })
+    }
+  })
+}
+
+/** A field takes dropped words itself. */
+function ownsDrop(target: EventTarget | null) {
+  const t = target as HTMLElement | null
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+}
+
+/** Panels that cover the board: a drop there would land out of sight, so it lands nowhere. */
+function offBoard(target: EventTarget | null) {
+  return !!(target as HTMLElement | null)?.closest?.('.FeedPanel, .Modal')
+}
+
+/**
+ * Pictures, GIFs and videos. A new one keeps an object URL until the sync uploads it (a video
+ * as a data URL is its whole size again, in a string), one too big to upload is refused up
+ * front, and one dragged out of a page that won't share its bytes is fetched by the worker.
+ */
+function installMediaImport(ed: Editor, notify: (message: string) => void) {
+  let said = false
+  ed.assetSrc = async (blob) => {
+    if (blob.size > MAX_UPLOAD_BYTES) {
+      said = true
+      notify(`That ${blob.type.startsWith('video/') ? 'video' : 'picture'} is ${Math.round(blob.size / 1048576)} MB; the most a desktop takes is ${Math.round(MAX_UPLOAD_BYTES / 1048576)} MB`)
+      throw new Error('too large')
+    }
+    return URL.createObjectURL(blob)
+  }
+
+  const direct = ed.fetchMedia.bind(ed)
+  ed.fetchMedia = async (url) => {
+    try {
+      const blob = await direct(url)
+      if (/^(image|video)\//.test(blob.type)) return blob
+    } catch {
+      /* the page won't share it: ask the worker */
+    }
+    const res = await fetch(`/api/fetch-media?url=${encodeURIComponent(url)}`)
+    if (!res.ok) throw new Error(`fetch-media ${res.status}`)
+    return res.blob()
+  }
+
+  const importBlobs = ed.importMediaBlobs.bind(ed)
+  ed.importMediaBlobs = async (blobs, at) => {
+    said = false
+    const ids = await importBlobs(blobs, at)
+    const missed = blobs.length - ids.length
+    if (missed > 0 && !said) {
+      const videos = [...blobs].some((b) => b.type.startsWith('video/') || /\.(mov|mp4|webm|m4v|ogv)$/i.test((b as File).name ?? ''))
+      notify(missed === blobs.length && blobs.length === 1 ? `This browser can't read that ${videos ? 'video' : 'picture'}` : `${missed} of those could not be read`)
+    }
+    return ids
   }
 }

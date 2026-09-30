@@ -14,6 +14,7 @@ import {
   boundsIntersect, boundsContain,
 } from './geometry.js'
 import { strokeOutline } from './freehand.js'
+import { isVideoAsset, isGifAsset, VideoPlayer, loadGif } from './media.js'
 
 export const NOTE_W = 200
 // The head at each end of an arrow or line: explicit props win, and a shape
@@ -513,22 +514,8 @@ export function tintedImage(img, tone, amount) {
   if (!bySteps) tintCache.set(img, (bySteps = new Map()))
   let c = bySteps.get(step)
   if (c) return c
-  const sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height
-  if (!sw || !sh) return img
-  const k = Math.min(1, TINT_MAX / Math.max(sw, sh))
-  c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(Math.max(1, Math.round(sw * k)), Math.max(1, Math.round(sh * k))) : document.createElement('canvas')
-  if (!(c instanceof OffscreenCanvas)) { c.width = Math.max(1, Math.round(sw * k)); c.height = Math.max(1, Math.round(sh * k)) }
-  const ctx = c.getContext('2d')
-  if (!ctx) return img
-  ctx.drawImage(img, 0, 0, c.width, c.height)
-  ctx.globalCompositeOperation = 'color'
-  ctx.globalAlpha = step / TINT_STEPS
-  ctx.fillStyle = tone
-  ctx.fillRect(0, 0, c.width, c.height)
-  ctx.globalAlpha = 1
-  ctx.globalCompositeOperation = 'destination-in'
-  ctx.drawImage(img, 0, 0, c.width, c.height)
-  ctx.globalCompositeOperation = 'source-over'
+  c = tintCanvas(img)
+  if (!c || !paintTint(c, img, tone, step / TINT_STEPS)) return img
   bySteps.set(step, c)
   tintOrder.push([img, step])
   if (++tintCount > TINT_KEEP) {
@@ -538,15 +525,78 @@ export function tintedImage(img, tone, amount) {
   }
   return c
 }
-export function assetImage(store, assetId, onReady) {
+// A moving picture's current frame is a canvas or video whose pixels change
+// under the same object, so its toned copy can't be kept: one scratch
+// canvas per source, repainted each time it is drawn.
+const liveTints = new WeakMap() // source -> canvas
+export function tintedFrame(src, tone, amount) {
+  const a = Math.max(0, Math.min(1, amount))
+  if (a <= 0) return src
+  let c = liveTints.get(src)
+  if (!c) { c = tintCanvas(src); if (c) liveTints.set(src, c) }
+  return c && paintTint(c, src, tone, a) ? c : src
+}
+// the pixel size of anything a canvas can draw
+export function sourceSize(src) {
+  return { w: src.videoWidth || src.naturalWidth || src.width || 0, h: src.videoHeight || src.naturalHeight || src.height || 0 }
+}
+function tintCanvas(src) {
+  const { w: sw, h: sh } = sourceSize(src)
+  if (!sw || !sh) return null
+  const k = Math.min(1, TINT_MAX / Math.max(sw, sh))
+  const w = Math.max(1, Math.round(sw * k)), h = Math.max(1, Math.round(sh * k))
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h)
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  return c
+}
+function paintTint(c, img, tone, amount) {
+  const ctx = c.getContext('2d')
+  if (!ctx) return false
+  ctx.clearRect(0, 0, c.width, c.height)
+  ctx.drawImage(img, 0, 0, c.width, c.height)
+  ctx.globalCompositeOperation = 'color'
+  ctx.globalAlpha = amount
+  ctx.fillStyle = tone
+  ctx.fillRect(0, 0, c.width, c.height)
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'destination-in'
+  ctx.drawImage(img, 0, 0, c.width, c.height)
+  ctx.globalCompositeOperation = 'source-over'
+  return true
+}
+
+// The GIF or video player behind an asset, once it has one (see media.js).
+export function assetMedia(assetId) {
+  return imgCache.get(assetId)?.media || null
+}
+// What to draw for an asset right now: a picture, or a moving picture's
+// current frame; null while it loads. `live` is the screen asking — only
+// that keeps a moving picture playing (an export or a recording just takes
+// the frame that's there).
+export function assetImage(store, assetId, onReady, live = false) {
   let e = imgCache.get(assetId)
-  if (e) return e.ready ? e.img : null
+  if (e) {
+    if (e.media) return live ? e.media.frame(onReady) : e.media.current()
+    return e.ready ? e.img : null
+  }
   const asset = store.asset(assetId)
   if (!asset) return null
+  if (isVideoAsset(asset)) {
+    e = { media: new VideoPlayer(asset.src, onReady) }
+    imgCache.set(assetId, e)
+    return live ? e.media.frame(onReady) : null
+  }
   const img = new Image()
   e = { img, ready: false }
   imgCache.set(assetId, e)
-  img.onload = () => { e.ready = true; onReady && onReady() }
+  img.onload = () => {
+    e.ready = true
+    onReady && onReady()
+    // a GIF plays from its own frames once they're read; the still shows till then
+    if (isGifAsset(asset)) loadGif(img.src).then((player) => { if (player) { e.media = player; onReady && onReady() } })
+  }
   // a picture hosted elsewhere (a tldraw paste that couldn't be fetched)
   // loads with CORS so export can still read the canvas; a host that won't
   // allow that gets a plain load, which shows but can't be exported
@@ -880,9 +930,9 @@ export function drawShape(ctx, shape, opts) {
       break
     }
     case 'image': {
-      let img = assetImage(opts.store, p.assetId, opts.onAssetLoad)
+      let img = assetImage(opts.store, p.assetId, opts.onAssetLoad, opts.live)
       // a fading picture draws from a toned copy of itself (see tintedImage)
-      if (img && opts.imageTint) img = opts.imageTint(img) || img
+      if (img && opts.imageTint) img = opts.imageTint(img, !!assetMedia(p.assetId)) || img
       if (img) {
         if (opts.cropPreview) {
           // crop mode: the whole picture shows through faintly around the window
@@ -898,7 +948,7 @@ export function drawShape(ctx, shape, opts) {
         ctx.clip()
         const c = p.crop
         if (c) {
-          const sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height
+          const { w: sw, h: sh } = sourceSize(img)
           ctx.drawImage(img, c.x * sw, c.y * sh, c.w * sw, c.h * sh, 0, 0, p.w, p.h)
         } else ctx.drawImage(img, 0, 0, p.w, p.h)
         ctx.restore()

@@ -1,7 +1,7 @@
 import type { BoardRecord, Diff, ScribbleStroke, Store } from '@quickdrawjs/core'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
 import type { ItemMeta } from '../shared/types'
-import { uploadDataUrl } from './uploads'
+import { isLocalSrc, uploadLocalSrc } from './uploads'
 
 export type SyncStatus = 'connecting' | 'online' | 'offline'
 
@@ -310,13 +310,14 @@ export class BoardSync {
     const removed = Object.keys(diff.removed)
 
     for (const rec of Object.values(put)) {
-      if (rec.typeName !== 'asset' || !rec.src.startsWith('data:')) continue
+      if (rec.typeName !== 'asset' || !isLocalSrc(rec.src)) continue
       try {
-        const uploaded = { ...rec, src: await uploadDataUrl(rec.src) }
+        const uploaded = { ...rec, src: await uploadLocalSrc(rec.src) }
         put[rec.id] = uploaded
         if (this.store.has(rec.id)) this.store.put(uploaded, 'remote')
       } catch (e) {
-        console.warn('Image upload failed; removing it from the board', e)
+        console.warn('Upload failed; removing it from the board', e)
+        this.opts.onRejected(`That ${rec.mime?.startsWith('video/') ? 'video' : 'picture'} could not be uploaded, so it was taken off`)
         const orphans = this.store
           .shapes()
           .filter((s) => s.props.assetId === rec.id)

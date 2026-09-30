@@ -7,7 +7,8 @@
 import { SIZES, HIGHLIGHT_ALPHA, HIGHLIGHT_SCALE, HIGHLIGHT_PLAIN, GRID_STEP, GRID_MAJOR } from './palette.js'
 import { lineHeads, headGeometry,
   localBounds, pageBounds, textLayout, noteLayout, geoLabelLayout, lineBaseline, lineRuns,
-  buildGeoPath, buildInkPath, dashFor, imageFrame, urlBadgeAt, NOTE_PAD, SEMI, arrowLabelLayout, ARROW_LABEL_PAD } from './shapes.js'
+  buildGeoPath, buildInkPath, dashFor, imageFrame, assetMedia, urlBadgeAt, NOTE_PAD, SEMI, arrowLabelLayout, ARROW_LABEL_PAD } from './shapes.js'
+import { isVideoAsset } from './media.js'
 import { boundsUnion, boundsExpand, traceSmooth } from './geometry.js'
 
 const n = (v) => String(Math.round(v * 100) / 100)
@@ -177,11 +178,13 @@ export function shapeToSvg(shape, { theme, store, defs }) {
       const asset = store.asset(p.assetId)
       const clipId = 'qd-clip-' + shape.id.replace(/[^a-zA-Z0-9_-]/g, '_')
       defs.set(clipId, tag('clipPath', { id: clipId }, tag('rect', { width: n(p.w), height: n(p.h), rx: 4 })))
-      if (asset) {
+      // an SVG can't hold a video: it keeps the frame on screen, when there is one
+      const href = asset && (isVideoAsset(asset) ? assetMedia(p.assetId)?.poster?.() : asset.src)
+      if (href) {
         // a cropped image draws its whole source under the window's clip
         const f = imageFrame(shape)
         body = tag('g', { 'clip-path': `url(#${clipId})` },
-          tag('image', { href: asset.src, x: n(f.x), y: n(f.y), width: n(f.w), height: n(f.h), preserveAspectRatio: 'none' }))
+          tag('image', { href, x: n(f.x), y: n(f.y), width: n(f.w), height: n(f.h), preserveAspectRatio: 'none' }))
       } else {
         body = tag('rect', { width: n(p.w), height: n(p.h), rx: 4, fill: SEMI[theme.id] })
       }

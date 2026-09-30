@@ -60,6 +60,10 @@ const ICONS = {
   paste: SVG('<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>'),
   selectAll: SVG('<path d="M5 3a2 2 0 0 0-2 2"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M9 3h1"/><path d="M9 21h1"/><path d="M14 3h1"/><path d="M14 21h1"/><path d="M3 9v1"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M21 14v1"/>'),
   zoomReset: SVG('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M8 11h6"/>'),
+  play: SVG('<polygon points="6 3 20 12 6 21 6 3"/>'),
+  pause: SVG('<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>'),
+  soundOn: SVG('<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>'),
+  soundOff: SVG('<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/>'),
   crop: SVG('<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/>'),
   group: SVG('<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect width="7" height="5" x="7" y="7" rx="1"/><rect width="7" height="5" x="10" y="12" rx="1"/>'),
   ungroup: SVG('<rect width="8" height="6" x="5" y="4" rx="1"/><rect width="8" height="6" x="11" y="14" rx="1"/>'),
@@ -128,7 +132,7 @@ const FILL_ICONS = {
 const TIPS = {
   select: 'Select — V', hand: 'Hand — H', draw: 'Draw — D', highlight: 'Highlight — I',
   eraser: 'Eraser — E', laser: 'Laser — K', line: 'Line — L', arrow: 'Arrow — A',
-  geo: 'Shape — G', text: 'Text — T', note: 'Sticky note — N', image: 'Insert image',
+  geo: 'Shape — G', text: 'Text — T', note: 'Sticky note — N', image: 'Insert image or video',
   undo: 'Undo — ⌘Z', redo: 'Redo — ⇧⌘Z', menu: 'Board menu', more: 'More tools',
   tools: 'Tools', duplicate: 'Duplicate — ⌘D', delete: 'Delete — ⌫',
 }
@@ -623,6 +627,13 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       divider()
     }
     if (one?.type === 'image') {
+      // a GIF or video plays for each viewer on their own: pausing or
+      // unmuting here changes nothing in the document
+      const media = editor.mediaOf(one.id)
+      if (media) {
+        item(media.paused ? 'play' : 'pause', media.paused ? 'Play' : 'Pause', null, () => media.setPaused(!media.paused))
+        if (media.kind === 'video') item(media.muted ? 'soundOn' : 'soundOff', media.muted ? 'Sound on' : 'Sound off', null, () => media.setMuted(!media.muted))
+      }
       item('crop', 'Crop image', 'Enter', () => editor.startCrop(one.id))
       if (one.props.crop) item('crop', 'Reset crop', null, () => editor.resetCrop(one.id))
       divider()

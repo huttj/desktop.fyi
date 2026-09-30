@@ -18,6 +18,7 @@ export { TextSurface } from './textedit.js'
 export { strokeOutline } from './freehand.js'
 export { sceneToSvg, shapeToSvg } from './svg.js'
 export { BINDABLE, anchorAt, anchorPoint, boundTerminals, rebindArrow, outlinePolygon } from './bindings.js'
+export { parseGif, lzwDecode, GifAnimator, isVideoAsset, isGifAsset, guessMime, dataTransferMedia } from './media.js'
 export { parseTldrawClipboard, convertTldrawContent, decodeDrawPath, richTextToPlain, richTextToText, decompressFromBase64 } from './tldraw.js'
 
 import { Editor } from './editor.js'

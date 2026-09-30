@@ -613,3 +613,19 @@
   background: var(--qd-bar-bg); border: 1px solid var(--qd-border); white-space: nowrap;
 }
 @keyframes qd-help-in { from { opacity: 0 } to { opacity: 1 } }
+
+/* something droppable is being dragged over the board */
+.qd-root.qd-drop-target::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 2px dashed #2f80ec;
+  border-radius: 12px;
+  background: rgba(47, 128, 236, 0.06);
+  pointer-events: none;
+  z-index: 50;
+}
+.qd-root[data-qd-theme='dark'].qd-drop-target::after {
+  border-color: #4f96f6;
+  background: rgba(79, 150, 246, 0.08);
+}

@@ -11,14 +11,21 @@ declare global {
 	}
 }
 
-// when a user uploads an asset, we store it in the bucket. we only allow image assets.
-// The client names uploads by content hash, so a repeat of the same image is a no-op.
+/** The most a picture or video on a desktop may weigh (Workers take request bodies up to 100 MB). */
+export const MAX_UPLOAD_BYTES = 95 * 1024 * 1024
+
+// when a user uploads an asset, we store it in the bucket. we only allow pictures and videos.
+// The client names uploads by content hash, so a repeat of the same file is a no-op.
 export async function handleAssetUpload(request: IRequest, env: Env) {
 	const objectName = getAssetObjectName(request.params.uploadId)
 
 	const contentType = request.headers.get('content-type') ?? ''
-	if (!contentType.startsWith('image/')) {
+	if (!/^(image|video)\//.test(contentType)) {
 		return error(400, 'Invalid content type')
+	}
+	const length = Number(request.headers.get('content-length') ?? 0)
+	if (length > MAX_UPLOAD_BYTES) {
+		return error(413, 'That file is too large')
 	}
 
 	if (await env.UPLOADS.head(objectName)) {
@@ -60,6 +67,8 @@ export async function handleAssetDownload(request: IRequest, env: Env, ctx: Exec
 	// assets are immutable, so we can cache them basically forever:
 	headers.set('cache-control', 'public, max-age=31536000, immutable')
 	headers.set('etag', object.httpEtag)
+	// videos seek by range (Safari won't play one at all without)
+	headers.set('accept-ranges', 'bytes')
 
 	// we set CORS headers so all clients can access assets. we do this here so our `cors` helper in
 	// worker.ts doesn't try to set extra cors headers on responses that have been read from the
@@ -103,4 +112,43 @@ export async function handleAssetDownload(request: IRequest, env: Env, ctx: Exec
 	}
 
 	return new Response(body, { headers, status })
+}
+
+/**
+ * A picture or video dragged out of another page, fetched here because most sites won't hand
+ * their bytes to a page on another origin. Only pictures and videos come back, and never more
+ * than an upload may weigh; the client uploads them like any file of its own.
+ */
+export async function handleMediaFetch(request: IRequest) {
+	const raw = new URL(request.url).searchParams.get('url') ?? ''
+	let target: URL
+	try {
+		target = new URL(raw)
+	} catch {
+		return error(400, 'Not an address')
+	}
+	if (target.protocol !== 'https:' && target.protocol !== 'http:') return error(400, 'Not a web address')
+	let res: Response
+	try {
+		res = await fetch(target.toString(), { headers: { accept: 'image/*,video/*;q=0.9,*/*;q=0.1' }, redirect: 'follow' })
+	} catch {
+		return error(502, 'That address could not be reached')
+	}
+	if (!res.ok || !res.body) return error(502, `That address answered ${res.status}`)
+	const contentType = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+	if (!/^(image|video)\//.test(contentType)) return error(415, 'That address is not a picture or video')
+	const length = Number(res.headers.get('content-length') ?? 0)
+	if (length > MAX_UPLOAD_BYTES) return error(413, 'That file is too large')
+	// a server that doesn't say how big it is still gets cut off at the limit
+	let seen = 0
+	const cap = new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			seen += chunk.byteLength
+			if (seen > MAX_UPLOAD_BYTES) controller.error(new Error('too large'))
+			else controller.enqueue(chunk)
+		},
+	})
+	return new Response(res.body.pipeThrough(cap), {
+		headers: { 'content-type': contentType, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'" },
+	})
 }

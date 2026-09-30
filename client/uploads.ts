@@ -1,13 +1,20 @@
 /**
- * Quickdraw keeps pasted images in the document as data URLs. Those are too
- * big for the room socket and for SQLite rows, so before an image syncs it is
- * uploaded to R2 and the asset's `src` is swapped for the upload URL.
- * Uploads are named by content hash: the same image twice is a no-op.
+ * A picture or video added here starts out local: an object URL (see the
+ * board's assetSrc hook), or a data URL from an older path. Neither fits the
+ * room socket or a SQLite row, so before it syncs it is uploaded to R2 and the
+ * asset's `src` is swapped for the upload URL.
+ * Uploads are named by content hash: the same file twice is a no-op.
  */
+
+/** The most a picture or video may weigh (the worker's limit, a little under 100 MB). */
+export const MAX_UPLOAD_BYTES = 95 * 1024 * 1024
+
+/** A src that still has to be uploaded. */
+export const isLocalSrc = (src: string) => src.startsWith('data:') || src.startsWith('blob:')
 
 const inflight = new Map<string, Promise<string>>()
 
-export function uploadDataUrl(dataUrl: string): Promise<string> {
+export function uploadLocalSrc(dataUrl: string): Promise<string> {
   let p = inflight.get(dataUrl)
   if (!p) {
     p = upload(dataUrl)
@@ -19,6 +26,7 @@ export function uploadDataUrl(dataUrl: string): Promise<string> {
 
 async function upload(dataUrl: string): Promise<string> {
   const blob = await (await fetch(dataUrl)).blob()
+  if (blob.size > MAX_UPLOAD_BYTES) throw new Error('Upload failed (too large)')
   const bytes = await blob.arrayBuffer()
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
   const hash = Array.from(digest.slice(0, 20), (b) => b.toString(16).padStart(2, '0')).join('')
@@ -54,7 +62,17 @@ function extensionFor(mime: string) {
       return 'webp'
     case 'image/svg+xml':
       return 'svg'
+    case 'image/avif':
+      return 'avif'
+    case 'video/webm':
+      return 'webm'
+    case 'video/mp4':
+      return 'mp4'
+    case 'video/quicktime':
+      return 'mov'
+    case 'video/ogg':
+      return 'ogv'
     default:
-      return 'img'
+      return mime.startsWith('video/') ? 'video' : 'img'
   }
 }

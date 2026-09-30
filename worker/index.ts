@@ -1,5 +1,5 @@
 import { AutoRouter, error, IRequest, json, RequestHandler } from 'itty-router'
-import { getAssetObjectName, handleAssetDownload, handleAssetUpload } from './assetUploads'
+import { getAssetObjectName, handleAssetDownload, handleAssetUpload, handleMediaFetch } from './assetUploads'
 import { clearSessionCookie, getAuth, getSessionUser, isAdminEmail, isLocal, publicOrigin, readCookie, SESSION_COOKIE, SESSION_TTL_MS, sessionCookie, toMe, TOKEN_TTL_MS } from './auth'
 import { OWNER_HEADER, USER_HEADER } from './BoardDurableObject'
 import { Db, HANDLE_RE, RESERVED_HANDLES, toPerson, toSummary, type UserRow } from './db'
@@ -330,6 +330,7 @@ const router = AutoRouter<IRequest, Args>({
   // ---- assets ----
   .post('/api/uploads/:uploadId', requireAuth, handleAssetUpload)
   .get('/api/uploads/:uploadId', handleAssetDownload)
+  .get('/api/fetch-media', requireAuth, handleMediaFetch)
 
   .all('/api/*', () => error(404, 'Not found'))
 
