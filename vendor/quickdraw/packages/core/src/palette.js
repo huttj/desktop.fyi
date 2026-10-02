@@ -47,6 +47,7 @@ export const THEMES = {
   light: {
     id: 'light',
     background: '#fbf9f4', // warm paper
+    exportBackground: '#ffffff', // an exported picture sits on plain white
     colors: LIGHT,
     noteText: '#1d1d1d', // sticky ink stays dark on every light note paper
     selection: '#2f80ec',
@@ -65,6 +66,7 @@ export const THEMES = {
   dark: {
     id: 'dark',
     background: '#191713',
+    exportBackground: '#000000',
     colors: DARK,
     noteText: '#1d1d1d',
     selection: '#4f96f6',

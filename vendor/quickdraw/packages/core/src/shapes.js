@@ -109,6 +109,89 @@ export function pageBounds(shape) {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
 }
 
+// The page box of what a shape actually puts on the paper: its outline's
+// width, a hand-drawn wobble, arrow heads and a bend's true reach, where
+// pageBounds is the shape's own box. An export is cut to this, so nothing
+// is clipped and nothing pads it. (A note's soft shadow isn't counted.)
+export function inkBounds(shape) {
+  const p = shape.props
+  const lb = localBounds(shape)
+  // shape-local to page, turned about the centre of the shape's own box
+  const cx = shape.x + lb.x + lb.w / 2, cy = shape.y + lb.y + lb.h / 2
+  const toPage = (x, y) => (shape.rot ? rotWith(shape.x + x, shape.y + y, cx, cy, shape.rot) : { x: shape.x + x, y: shape.y + y })
+  const r = new BoundsSink(toPage)
+  let pad = 0
+  if (shape.type === 'geo') {
+    buildGeoPath(r, shape)
+    pad = SIZES[p.size] / 2
+  } else if (shape.type === 'arrow' || shape.type === 'line') {
+    const w = SIZES[p.size]
+    const bend = p.bend || 0
+    const len = Math.hypot(p.dx, p.dy) || 1
+    const cx2 = p.dx / 2 - (p.dy / len) * bend * 2, cy2 = p.dy / 2 + (p.dx / len) * bend * 2
+    r.moveTo(0, 0)
+    bend ? r.quadraticCurveTo(cx2, cy2, p.dx, p.dy) : r.lineTo(p.dx, p.dy)
+    const heads = lineHeads(shape)
+    const ends = [
+      [heads.end, p.dx, p.dy, bend ? Math.atan2(p.dy - cy2, p.dx - cx2) : Math.atan2(p.dy, p.dx)],
+      [heads.start, 0, 0, bend ? Math.atan2(-cy2, -cx2) : Math.atan2(-p.dy, -p.dx)],
+    ]
+    for (const [kind, hx, hy, ta] of ends) {
+      const g = headGeometry(kind, hx, hy, ta, w, len)
+      if (!g) continue
+      if (g.kind === 'dot') r.point(g.cx, g.cy, g.r - w / 2) // filled: its radius, no outline
+      else for (const [x, y] of g.pts) r.point(x, y)
+    }
+    pad = w / 2
+    const l = arrowLabelLayout(shape)
+    if (l) r.rect(l.box, -pad)
+  } else {
+    r.rect(lb)
+  }
+  return r.bounds(pad) || pageBounds(shape)
+}
+// a path sink (the Path2D calls buildGeoPath makes) that only notes how far
+// the path reaches on the page, curves followed along their length
+class BoundsSink {
+  constructor(toPage) { this.toPage = toPage; this.x0 = Infinity; this.y0 = Infinity; this.x1 = -Infinity; this.y1 = -Infinity; this.cx = 0; this.cy = 0 }
+  // a local point, reaching `extra` further all round
+  point(x, y, extra = 0) {
+    const q = this.toPage(x, y)
+    this.x0 = Math.min(this.x0, q.x - extra); this.x1 = Math.max(this.x1, q.x + extra)
+    this.y0 = Math.min(this.y0, q.y - extra); this.y1 = Math.max(this.y1, q.y + extra)
+  }
+  rect(b, extra = 0) {
+    this.point(b.x, b.y, extra); this.point(b.x + b.w, b.y, extra)
+    this.point(b.x + b.w, b.y + b.h, extra); this.point(b.x, b.y + b.h, extra)
+  }
+  moveTo(x, y) { this.point(x, y); this.cx = x; this.cy = y }
+  lineTo(x, y) { this.moveTo(x, y) }
+  quadraticCurveTo(qx, qy, x, y) {
+    const { cx, cy } = this
+    for (let i = 1; i <= 16; i++) {
+      const t = i / 16, u = 1 - t
+      this.point(u * u * cx + 2 * u * t * qx + t * t * x, u * u * cy + 2 * u * t * qy + t * t * y)
+    }
+    this.cx = x; this.cy = y
+  }
+  bezierCurveTo(ax, ay, bx, by, x, y) {
+    const { cx, cy } = this
+    for (let i = 1; i <= 16; i++) {
+      const t = i / 16, u = 1 - t
+      this.point(u * u * u * cx + 3 * u * u * t * ax + 3 * u * t * t * bx + t * t * t * x, u * u * u * cy + 3 * u * u * t * ay + 3 * u * t * t * by + t * t * t * y)
+    }
+    this.cx = x; this.cy = y
+  }
+  ellipse(x, y, rx, ry) {
+    for (let i = 0; i < 64; i++) this.point(x + rx * Math.cos((i / 64) * Math.PI * 2), y + ry * Math.sin((i / 64) * Math.PI * 2))
+  }
+  closePath() {}
+  bounds(pad) {
+    if (this.x0 > this.x1) return null
+    return { x: this.x0 - pad, y: this.y0 - pad, w: this.x1 - this.x0 + pad * 2, h: this.y1 - this.y0 + pad * 2 }
+  }
+}
+
 // page point -> shape-local point (un-rotate, un-translate)
 export function toLocal(shape, px, py) {
   if (shape.rot) {

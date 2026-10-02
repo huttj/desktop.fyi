@@ -144,6 +144,8 @@ export interface Snapshot {
 export interface Theme {
   id: ThemeId
   background: string
+  /** What exports sit on by default: plain white, or black in the dark. */
+  exportBackground: string
   colors: Record<ColorId, { stroke: string; fill: string; note: string }>
   noteText: string
   selection: string
@@ -189,6 +191,8 @@ export function localBounds(shape: ShapeRecord): Bounds
 export function lineHeads(shape: ShapeRecord): { start: HeadId; end: HeadId }
 /** Axis-aligned page bounds of a shape, rotation included. */
 export function pageBounds(shape: ShapeRecord): Bounds
+/** The page box of the ink a shape puts down (outline width, wobble, arrow heads included): what exports are cut to. */
+export function inkBounds(shape: ShapeRecord): Bounds
 /** The runs covering [from, to) of a text: [start, end, style]; unmarked stretches get an empty style. */
 export function runsIn(marks: TextMark[] | undefined, from: number, to: number): Array<[number, number, Partial<TextMark>]>
 /** Carry marks across an edit of their text (positions before stay, after shift, inside collapse; empty runs go). */
@@ -322,10 +326,14 @@ export function rebindArrow(arrow: ShapeRecord, store: Store): ShapeRecord
 
 /** One shape as an SVG `<g>` string. `defs` collects shared definitions (patterns, filters, clips) by id. */
 export function shapeToSvg(shape: ShapeRecord, opts: { theme: Theme; store: Store; defs: Map<string, string> }): string
-/** A drawn-order list of shapes as a complete SVG document string (null when empty). */
+/**
+ * A drawn-order list of shapes as a complete SVG document string (null when empty), cut tight
+ * to the drawing unless `margin` pads it. `background`: true for `theme.exportBackground`, a CSS
+ * colour for that one, false for none.
+ */
 export function sceneToSvg(
   shapes: ShapeRecord[],
-  opts: { theme: Theme; store: Store; grid?: GridId; background?: boolean; margin?: number }
+  opts: { theme: Theme; store: Store; grid?: GridId; background?: boolean | string; margin?: number }
 ): string | null
 
 /**
@@ -584,10 +592,14 @@ export class Editor {
   /** A GIF or video shape's player controls, or null for a still (or before it has loaded). */
   mediaOf(shapeId: string): MediaControls | null
 
-  /** Render the drawing to a PNG blob (null when the board is empty). */
-  exportImage(opts?: { background?: boolean; scale?: number; margin?: number; ids?: Set<string> | null }): Promise<Blob | null>
-  /** The drawing as an SVG document string — vectors all the way (null when empty). */
-  exportSvg(opts?: { background?: boolean; margin?: number; ids?: Set<string> | null }): string | null
+  /**
+   * Render the drawing to a PNG blob (null when the board is empty), cut tight to the drawing.
+   * `background`: true (default) for plain white, or black in the dark theme; a CSS colour; or
+   * false for transparency. `grid` brings the board's grid along; `margin` pads.
+   */
+  exportImage(opts?: { background?: boolean | string; grid?: boolean; scale?: number; margin?: number; ids?: Set<string> | null }): Promise<Blob | null>
+  /** The drawing as an SVG document string — vectors all the way (null when empty). Same options as exportImage. */
+  exportSvg(opts?: { background?: boolean | string; grid?: boolean; margin?: number; ids?: Set<string> | null }): string | null
 
   // rendering
   requestRender(): void

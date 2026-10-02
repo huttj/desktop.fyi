@@ -6,7 +6,7 @@
 
 import { SIZES, HIGHLIGHT_ALPHA, HIGHLIGHT_SCALE, HIGHLIGHT_PLAIN, GRID_STEP, GRID_MAJOR } from './palette.js'
 import { lineHeads, headGeometry,
-  localBounds, pageBounds, textLayout, noteLayout, geoLabelLayout, lineBaseline, lineRuns,
+  localBounds, inkBounds, textLayout, noteLayout, geoLabelLayout, lineBaseline, lineRuns,
   buildGeoPath, buildInkPath, dashFor, imageFrame, assetMedia, urlBadgeAt, NOTE_PAD, SEMI, arrowLabelLayout, ARROW_LABEL_PAD } from './shapes.js'
 import { isVideoAsset } from './media.js'
 import { boundsUnion, boundsExpand, traceSmooth } from './geometry.js'
@@ -235,17 +235,23 @@ function gridDefs(grid, theme) {
 
 // ---- the document ----------------------------------------------------------
 
-// shapes: already sorted for drawing. Returns the SVG document string.
-export function sceneToSvg(shapes, { theme, store, grid = 'none', background = true, margin = 48 }) {
+// what an export sits on: a colour of the host's choosing, else the theme's
+export const exportFill = (theme, background) => typeof background === 'string' ? background : theme.exportBackground || theme.background
+
+// shapes: already sorted for drawing. Returns the SVG document string, cut
+// tight to the drawing (pass a margin to pad it). `background`: true for the
+// theme's plain export colour (white, or black in the dark), a CSS colour
+// for that one, false for none.
+export function sceneToSvg(shapes, { theme, store, grid = 'none', background = true, margin = 0 }) {
   let b = null
-  for (const s of shapes) b = boundsUnion(b, pageBounds(s))
+  for (const s of shapes) b = boundsUnion(b, inkBounds(s))
   if (!b) return null
   b = boundsExpand(b, margin)
   const defs = new Map()
   const body = shapes.map((s) => shapeToSvg(s, { theme, store, defs })).join('\n')
   let paper = ''
   if (background) {
-    paper += tag('rect', { x: n(b.x), y: n(b.y), width: n(b.w), height: n(b.h), fill: theme.background })
+    paper += tag('rect', { x: n(b.x), y: n(b.y), width: n(b.w), height: n(b.h), fill: exportFill(theme, background) })
     const gd = gridDefs(grid, theme)
     if (gd) {
       defs.set('qd-grid', gd)

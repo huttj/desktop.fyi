@@ -10,7 +10,7 @@ export {
   SIZES, FONT_SIZES, FONTS, fadedTheme,
 } from './palette.js'
 export {
-  pageBounds, localBounds, drawShape, hitShape, imageFrame, runsIn, mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout, lineHeads,
+  pageBounds, inkBounds, localBounds, drawShape, hitShape, imageFrame, runsIn, mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout, lineHeads,
   markAt, hasMark, setMark, normalizeMarks, textHitAt, textOffsetAt, arrowLabelLayout, arrowMidpoint } from './shapes.js'
 export { openUrl, normalizeText } from './editor.js'
 export { lockPage } from './page.js'

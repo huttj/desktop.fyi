@@ -7,11 +7,11 @@ import { Store, newId } from './store.js'
 import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR, FADE_TONE, fadedTheme } from './palette.js'
 import {
   lineHeads, typeForHeads,
-  localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits, tintedImage, tintedFrame, assetMedia,
+  localBounds, pageBounds, inkBounds, toLocal, drawShape, hitShape, marqueeHits, tintedImage, tintedFrame, assetMedia,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, imageFrame,
   mapMarks, textLinkAt, textHitAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark, arrowLabelLayout, arrowMidpoint, ARROW_LABEL_PAD } from './shapes.js'
 import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith } from './geometry.js'
-import { sceneToSvg } from './svg.js'
+import { sceneToSvg, exportFill } from './svg.js'
 import { BINDABLE, insideShape, anchorAt, rebindArrow, remapBindings } from './bindings.js'
 import { parseTldrawClipboard, convertTldrawContent } from './tldraw.js'
 import { TextSurface } from './textedit.js'
@@ -3055,13 +3055,15 @@ export class Editor {
   }
 
   // ---- export --------------------------------------------------------------
-  // Renders the drawing into a PNG at crisp resolution — with the paper
-  // behind it, or on transparency. Everything by default; pass ids (a Set)
-  // to export just those shapes.
-  async exportImage({ background = true, scale = 2, margin = 48, ids = null } = {}) {
+  // Renders the drawing into a PNG at crisp resolution, cut tight to the
+  // drawing: on plain white (black in the dark theme), a colour you pass, or
+  // transparency (background false). The board's grid comes along only when
+  // asked (grid: true); a margin pads it. Everything by default; pass ids (a
+  // Set) to export just those shapes.
+  async exportImage({ background = true, grid = false, scale = 2, margin = 0, ids = null } = {}) {
     let b = null
     const shapes = this.shapesSorted().filter((s) => !ids || ids.has(s.id))
-    for (const s of shapes) b = boundsUnion(b, pageBounds(s))
+    for (const s of shapes) b = boundsUnion(b, inkBounds(s))
     if (!b) return null
     b = boundsExpand(b, margin)
     // stay under ~24MP however big the drawing is
@@ -3072,10 +3074,9 @@ export class Editor {
     canvas.height = Math.max(1, Math.round(b.h * k))
     const ctx = canvas.getContext('2d')
     if (background) {
-      ctx.fillStyle = this.theme.background
+      ctx.fillStyle = exportFill(this.theme, background)
       ctx.fillRect(0, 0, canvas.width, canvas.height)
-      // the grid travels with the paper: an exported board looks like the board
-      this._drawGrid(ctx, { x: -b.x, y: -b.y, z: k }, canvas.width, canvas.height, 1)
+      if (grid) this._drawGrid(ctx, { x: -b.x, y: -b.y, z: k }, canvas.width, canvas.height, 1)
     }
     ctx.setTransform(k, 0, 0, k, -b.x * k, -b.y * k)
     // make sure every image asset is decoded before the snap
@@ -3086,10 +3087,10 @@ export class Editor {
   // The drawing as an SVG document string — vectors all the way, so it
   // scales without limit and opens in any design tool. Same options as
   // exportImage (no `scale`: there is no pixel density to pick).
-  exportSvg({ background = true, margin = 48, ids = null } = {}) {
+  exportSvg({ background = true, grid = false, margin = 0, ids = null } = {}) {
     const shapes = this.shapesSorted().filter((s) => !ids || ids.has(s.id))
     if (!shapes.length) return null
-    return sceneToSvg(shapes, { theme: this.theme, store: this.store, grid: background ? this.grid : 'none', background, margin })
+    return sceneToSvg(shapes, { theme: this.theme, store: this.store, grid: background && grid ? this.grid : 'none', background, margin })
   }
   async _decodeAssets(shapes) {
     const waits = []
