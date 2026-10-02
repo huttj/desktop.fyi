@@ -2082,8 +2082,9 @@ export class Editor {
   // The pulled edge settles onto other shapes' edges and centre lines, or
   // onto a size that matches a neighbour's (so a box pulled to the height
   // of the one beside it lands exactly there). Returns the settled pointer,
-  // the guides to draw, and which axis led.
-  _snapResize(p, handle, init, center, orig) {
+  // the guides to draw, and which axis led. A crop window is never
+  // proportional, whatever the picture does on an ordinary pull.
+  _snapResize(p, handle, init, center, orig, proportional = this._proportional(handle, [...orig.values()], this.session.event || {})) {
     const tol = SNAP_PX / this.camera.z
     const ss = this.session
     const cands = ss.cands || (ss.cands = this._snapCandidates(new Set(orig.keys())))
@@ -2110,7 +2111,6 @@ export class Editor {
     const sx = axis(handle.includes('l') || handle.includes('r'), px, center ? init.x + init.w / 2 : handle.includes('l') ? init.x + init.w : init.x, init.w, cands.xs, cands.ws, gaps && (handle.includes('l') ? gaps.left : gaps.right))
     const sy = axis(handle.includes('t') || handle.includes('b'), py, center ? init.y + init.h / 2 : handle.includes('t') ? init.y + init.h : init.y, init.h, cands.ys, cands.hs, gaps && (handle.includes('t') ? gaps.top : gaps.bottom))
     // a proportional pull can only honour one axis: the one that settled closer
-    const proportional = this._proportional(handle, [...orig.values()], ss.event || {})
     let lead = null
     if (sx && sy) lead = Math.abs(sy.d) <= Math.abs(sx.d) ? 'y' : 'x'
     else if (sx) lead = 'x'
@@ -2314,12 +2314,25 @@ export class Editor {
     const props = { ...rest, w: win.w, h: win.h, ...(full ? {} : { crop }) }
     return { ...orig, x: c.x - win.w / 2, y: c.y - win.h / 2, props }
   }
-  _dragCrop(p) {
+  _dragCrop(p, e) {
     const ss = this.session
     const { orig, frame } = ss
     const l = toLocal(orig, p.x, p.y)
-    const dx = l.x - ss.start.x, dy = l.y - ss.start.y
+    let dx = l.x - ss.start.x, dy = l.y - ss.start.y
     const w0 = orig.props.w, h0 = orig.props.h
+    // a pulled side settles like a resized box's does (upright pictures only;
+    // ⌘ or Ctrl held turns it off). Its edge, not the pointer, does the settling.
+    ss.snapGuides = null
+    if (ss.which !== 'move' && !orig.rot && !(e.metaKey || e.ctrlKey)) {
+      const h = ss.which
+      const edge = { x: orig.x + (h.includes('l') ? dx : w0 + dx), y: orig.y + (h.includes('t') ? dy : h0 + dy) }
+      const snapped = this._snapResize(edge, h, { x: orig.x, y: orig.y, w: w0, h: h0 }, false, new Map([[orig.id, orig]]), false)
+      if (snapped.guides.length) {
+        dx += snapped.p.x - edge.x
+        dy += snapped.p.y - edge.y
+        ss.snapGuides = snapped.guides
+      }
+    }
     let win = { x: 0, y: 0, w: w0, h: h0 }, fr = frame
     if (ss.which === 'move') {
       // slide the picture behind the window, never past its edges
@@ -2332,6 +2345,9 @@ export class Editor {
       if (h.includes('t')) y0 = clamp(dy, frame.y, y1 - CROP_MIN)
       if (h.includes('b')) y1 = clamp(h0 + dy, y0 + CROP_MIN, frame.y + frame.h)
       win = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+      // the picture ran out before the line it settled on: no guide to a place it didn't reach
+      const off = (a, b) => Math.abs(a - b) > 1e-6
+      if ((h.includes('l') && off(x0, dx)) || (h.includes('r') && off(x1, w0 + dx)) || (h.includes('t') && off(y0, dy)) || (h.includes('b') && off(y1, h0 + dy))) ss.snapGuides = null
     }
     this.store.put(this._cropPatch(orig, fr, win))
   }
@@ -3435,8 +3451,8 @@ export class Editor {
       ctx.strokeRect(tl.x, tl.y, (b.w + 6) * cam.z, (b.h + 6) * cam.z)
     }
 
-    // snap guides: the line a moving or resizing box just settled on
-    const guides = (this.session?.type === 'translating' || this.session?.type === 'resizing') && this.session.snapGuides
+    // snap guides: the line a moving, resizing or cropped box just settled on
+    const guides = ['translating', 'resizing', 'cropping'].includes(this.session?.type) && this.session.snapGuides
     if (guides) {
       ctx.save()
       ctx.strokeStyle = t.selection
