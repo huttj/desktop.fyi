@@ -290,6 +290,8 @@ export function isVideoAsset(asset: AssetRecord | null | undefined): boolean
 export function isGifAsset(asset: AssetRecord | null | undefined): boolean
 /** A file's media type, from its name when its own type is missing or generic. */
 export function guessMime(name?: string, type?: string): string
+/** The file name a GIF or video asset's own bytes save under: `stem` plus its type's extension. */
+export function mediaFileName(asset: { src?: string; mime?: string }, stem: string): string
 /** The media a drag carries: files, else addresses of pictures/videos (or links). */
 export function dataTransferMedia(dt: DataTransfer | null): { files: File[]; urls: string[] }
 /** tldraw's content from the HTML (or text) it put on the clipboard, or null when it isn't tldraw's. */

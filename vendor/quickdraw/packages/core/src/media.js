@@ -28,13 +28,22 @@ export function isGifAsset(asset) {
 
 // the media type a file most likely is, when it doesn't say (a drop from a
 // server that sends octet-stream, a file with no type)
+const MIME_BY_EXT = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+  avif: 'image/avif', heic: 'image/heic', webm: 'video/webm', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', ogv: 'video/ogg',
+}
 export function guessMime(name = '', type = '') {
   if (type && type !== 'application/octet-stream') return type
   const ext = /\.([a-z0-9]+)(?:[?#]|$)/i.exec(name)?.[1]?.toLowerCase()
-  return {
-    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-    avif: 'image/avif', heic: 'image/heic', webm: 'video/webm', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', ogv: 'video/ogg',
-  }[ext] || type || ''
+  return MIME_BY_EXT[ext] || type || ''
+}
+// The file name a media asset's own bytes are saved under: its type's
+// extension (from `mime`, else from the address), after the given stem.
+export function mediaFileName(asset, stem) {
+  const mime = (asset.mime || /^data:([^;,]+)/i.exec(asset.src || '')?.[1] || '').toLowerCase()
+  let ext = Object.keys(MIME_BY_EXT).find((e) => MIME_BY_EXT[e] === mime)
+  if (!ext && !/^(data|blob):/i.test(asset.src || '')) ext = /\.([a-z0-9]{1,5})(?:[?#]|$)/i.exec(asset.src || '')?.[1]?.toLowerCase()
+  return stem + '.' + (ext || 'bin')
 }
 export const isMediaType = (type) => /^(image|video)\//.test(type || '')
 

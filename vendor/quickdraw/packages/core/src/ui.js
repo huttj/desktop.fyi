@@ -8,6 +8,7 @@
 
 import { COLOR_IDS, SIZE_IDS, DASH_IDS, FILL_IDS, GEO_IDS, GRID_IDS, FONT_IDS, ALIGN_IDS, HEAD_IDS, FONTS, THEMES } from './palette.js'
 import { pageBounds } from './shapes.js'
+import { isGifAsset, isVideoAsset, mediaFileName } from './media.js'
 
 const SVG = (inner) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
@@ -669,7 +670,17 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     // one shape (or one group) has nothing to line up with
     alignRowEl.classList.toggle('qd-off', units < 2)
     divider()
-    exportRows(p, new Set(sel))
+    // a GIF or video is worth more as itself than as a frame of it: its own
+    // file instead of the PNG / SVG exports
+    const original = one?.type === 'image' ? originalMedia(one) : null
+    if (original) item('download', 'Download ' + original.kind, null, () => saveOriginal(original))
+    else exportRows(p, new Set(sel))
+  }
+  // an image shape's moving picture, when it is one: { asset, kind: 'GIF' | 'video' }
+  function originalMedia(shape) {
+    const asset = shape.props.assetId ? editor.store.asset(shape.props.assetId) : null
+    const kind = isVideoAsset(asset) ? 'video' : isGifAsset(asset) ? 'GIF' : null
+    return kind ? { asset, kind } : null
   }
   // "Export ▸" and "Copy as ▸", the same everywhere: the selection when there
   // is one, else the whole board; each offers PNG, transparent PNG and SVG.
@@ -734,6 +745,16 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = 'quickdraw-' + new Date().toISOString().slice(0, 19).replaceAll(':', '.') + '.' + format
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+  }
+  // the asset's bytes as they are, through the host's fetchMedia (a picture
+  // from another site may need its help), named like the other exports
+  async function saveOriginal({ asset }) {
+    const blob = await editor.fetchMedia(asset.src)
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = mediaFileName({ ...asset, mime: asset.mime || blob.type }, 'quickdraw-' + new Date().toISOString().slice(0, 19).replaceAll(':', '.'))
     a.click()
     setTimeout(() => URL.revokeObjectURL(a.href), 5000)
   }
