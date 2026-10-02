@@ -31,7 +31,8 @@ export function AttributionOverlay({ editor, people, metas, meId }: { editor: Ed
       const id = hovered.current ?? selected
       const shape = id ? editor.store.get(id) : undefined
       const editing = (editor as unknown as { editing: unknown }).editing
-      const meta = shape && shape.typeName === 'shape' && !editing ? metas.get(shape.id) : undefined
+      // tucked away mid-drag, back where the thing lands
+      const meta = shape && shape.typeName === 'shape' && !editing && !editor.dragging ? metas.get(shape.id) : undefined
       let next: Info | null = null
       if (shape && shape.typeName === 'shape' && meta) {
         const b = pageBounds(shape)
@@ -70,7 +71,7 @@ export function AttributionOverlay({ editor, people, metas, meId }: { editor: Ed
     }
     el.addEventListener('pointermove', onMove)
     el.addEventListener('pointerleave', onLeave)
-    const offs = (['selection', 'camera', 'change', 'edit'] as const).map((ev) => editor.on(ev, compute))
+    const offs = (['selection', 'camera', 'change', 'edit', 'dragging'] as const).map((ev) => editor.on(ev, compute))
     compute()
     return () => {
       el.removeEventListener('pointermove', onMove)

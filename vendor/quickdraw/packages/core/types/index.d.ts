@@ -413,7 +413,7 @@ export interface SnapSettings {
 export type EditorEvent =
   | 'change' | 'history' | 'camera' | 'tool' | 'styles' | 'selection'
   | 'theme' | 'grid' | 'snap' | 'edit' | 'scribbles' | 'penmode' | 'help'
-  | 'crop' | 'contextmenu'
+  | 'crop' | 'contextmenu' | 'dragging'
 
 /**
  * The editor: camera, tools, selection, input and rendering over a Store.
@@ -436,6 +436,8 @@ export class Editor {
   tool: ToolId
   selection: Set<string>
   penMode: boolean
+  /** True while the selection is being moved, resized, rotated or has an end pulled; 'dragging' fires when it flips. */
+  readonly dragging: boolean
   /** The group a double-click dived into (its members select one at a time), or null. */
   focusedGroup: string | null
   /** The image in crop mode, or null. */

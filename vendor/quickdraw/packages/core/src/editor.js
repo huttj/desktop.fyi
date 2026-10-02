@@ -69,6 +69,9 @@ const rotateCursor = (deg) => {
 }
 const LONG_PRESS = 500 // ms of a still touch before the context menu opens
 const SNAP_PX = 6 // screen pixels within which a moving edge settles onto another
+// screen pixels an edge meeting an edge is preferred by, over a centre line,
+// an even gap or a matching size that lines up a hair closer
+const EDGE_PREF = 2
 const GAP_NEAREST = 40 // boxes that offer their spacing to a moving box (the nearest ones)
 // the empty space between two boxes (0 when they touch or overlap)
 const rectGap = (a, b) => {
@@ -82,6 +85,9 @@ export const ALIGN_MODES = ['left', 'center', 'right', 'top', 'middle', 'bottom'
 export const TOOLS = ['select', 'hand', 'draw', 'highlight', 'eraser', 'laser', 'arrow', 'line', 'geo', 'text', 'note']
 // pointer gestures whose edits are bracketed into one undo step
 const BATCHED_SESSIONS = new Set(['drawing', 'lineish', 'geo-create', 'translating', 'resizing', 'rotating', 'handle'])
+// gestures that carry the selection about: a host hides what it pins to the
+// selection while one runs (see `dragging`)
+const DRAG_SESSIONS = new Set(['translating', 'resizing', 'rotating', 'handle'])
 
 // local position of the bend handle: the curve's midpoint (chord midpoint
 // when straight — sampleLinePts collapses to the two endpoints at bend 0)
@@ -180,6 +186,17 @@ export class Editor {
     this._unsubReact = this.store.react((diff) => this._reactBindings(diff))
     this.requestRender()
   }
+
+  // The gesture under way, or null. Whether it moves the selection is public
+  // as `dragging`, and 'dragging' fires when that flips.
+  get session() { return this._session }
+  set session(ss) {
+    const was = this.dragging
+    this._session = ss
+    if (was !== this.dragging) this.emit('dragging')
+  }
+  // a selected thing is being moved, resized, rotated or has an end pulled
+  get dragging() { return DRAG_SESSIONS.has(this._session?.type) }
 
   // ---- events --------------------------------------------------------------
   on(ev, fn) {
@@ -1903,13 +1920,13 @@ export class Editor {
         const box = { x: b.x + dx, y: b.y + dy, w: b.w, h: b.h }
         const gaps = this.snap.gaps ? this._gapCandidates(box, cands.boxes, { between: true }) : null
         if (!(ss.shift && dx === 0)) {
-          const sx = this.snap.edges ? this._snapAxis([mx.x, mx.x + mx.w / 2, mx.x + mx.w], cands.xs, tol, box) : null
+          const sx = this.snap.edges ? this._snapAxis([mx.x, { at: mx.x + mx.w / 2, loose: true }, mx.x + mx.w], cands.xs, tol, box) : null
           const gx = gaps ? this._pickBest(this._snapAxis([mx.x], gaps.left, tol, box), this._snapAxis([mx.x + mx.w], gaps.right, tol, box)) : null
           if (gx && (!sx || gx.score < sx.score)) { dx += gx.d; guides.push({ axis: 'gx', spans: gx.b.spans, shift: gx.d }) }
           else if (sx) { dx += sx.d; guides.push({ axis: 'x', at: sx.at, from: Math.min(my.y, sx.b.y), to: Math.max(my.y + my.h, sx.b.y + sx.b.h) }) }
         }
         if (!(ss.shift && dy === 0)) {
-          const sy = this.snap.edges ? this._snapAxis([my.y, my.y + my.h / 2, my.y + my.h], cands.ys, tol, box) : null
+          const sy = this.snap.edges ? this._snapAxis([my.y, { at: my.y + my.h / 2, loose: true }, my.y + my.h], cands.ys, tol, box) : null
           const gy = gaps ? this._pickBest(this._snapAxis([my.y], gaps.top, tol, box), this._snapAxis([my.y + my.h], gaps.bottom, tol, box)) : null
           const fx = b.x + dx // the box's settled left, after any x snap
           if (gy && (!sy || gy.score < sy.score)) { dy += gy.d; guides.push({ axis: 'gy', spans: gy.b.spans, shift: gy.d }) }
@@ -1931,7 +1948,9 @@ export class Editor {
   // while dragging turns it off.
   // Only what is on screen (a little past its edges) offers lines to settle on.
   // A resize also settles onto matching sizes: pull a box to the height of
-  // the one beside it and it lands exactly there (ws/hs).
+  // the one beside it and it lands exactly there (ws/hs). Everything but an
+  // edge meeting an edge is `loose`: it gives way to an edge a little further
+  // off (EDGE_PREF), since edges lining up is what a tidy board is made of.
   _snapCandidates(excludeIds) {
     const xs = [], ys = [], ws = [], hs = [], boxes = []
     const vp = this.viewportPageBounds()
@@ -1940,10 +1959,10 @@ export class Editor {
       if (excludeIds.has(s.id)) continue
       const b = pageBounds(s)
       if (onScreen && (b.x + b.w < onScreen.x || b.x > onScreen.x + onScreen.w || b.y + b.h < onScreen.y || b.y > onScreen.y + onScreen.h)) continue
-      xs.push({ at: b.x, b }, { at: b.x + b.w / 2, b }, { at: b.x + b.w, b })
-      ys.push({ at: b.y, b }, { at: b.y + b.h / 2, b }, { at: b.y + b.h, b })
-      ws.push({ at: b.w, b })
-      hs.push({ at: b.h, b })
+      xs.push({ at: b.x, b }, { at: b.x + b.w / 2, b, loose: true }, { at: b.x + b.w, b })
+      ys.push({ at: b.y, b }, { at: b.y + b.h / 2, b, loose: true }, { at: b.y + b.h, b })
+      ws.push({ at: b.w, b, loose: true })
+      hs.push({ at: b.h, b, loose: true })
       boxes.push(b)
     }
     return { xs, ys, ws, hs, boxes }
@@ -2006,13 +2025,13 @@ export class Editor {
         for (const n of row) {
           const at = mid(n, box)
           // the box after n with the same gap: its leading edge at n's end + g
-          out[a.lead].push({ at: end(n) + pr.g, bias, b: { ...pr.b, spans: [pr.span, { axis, from: end(n), to: end(n) + pr.g, at }] } })
+          out[a.lead].push({ at: end(n) + pr.g, bias, loose: true, b: { ...pr.b, spans: [pr.span, { axis, from: end(n), to: end(n) + pr.g, at }] } })
           // the box before n with the same gap: its trailing edge at n's start - g
-          out[a.trail].push({ at: a.pos(n) - pr.g, bias, b: { ...pr.b, spans: [pr.span, { axis, from: a.pos(n) - pr.g, to: a.pos(n), at }] } })
+          out[a.trail].push({ at: a.pos(n) - pr.g, bias, loose: true, b: { ...pr.b, spans: [pr.span, { axis, from: a.pos(n) - pr.g, to: a.pos(n), at }] } })
         }
         if (between && pr.axis === axis && pr.g > a.size(box)) {
           const lead = end(pr.p) + (pr.g - a.size(box)) / 2
-          out[a.lead].push({ at: lead, bias, b: { ...pr.b, spans: [{ axis, from: end(pr.p), to: lead, at: mid(pr.p, box) }, { axis, from: lead + a.size(box), to: a.pos(pr.q), at: mid(pr.q, box) }] } })
+          out[a.lead].push({ at: lead, bias, loose: true, b: { ...pr.b, spans: [{ axis, from: end(pr.p), to: lead, at: mid(pr.p, box) }, { axis, from: lead + a.size(box), to: a.pos(pr.q), at: mid(pr.q, box) }] } })
         }
       }
     }
@@ -2020,14 +2039,17 @@ export class Editor {
   }
   // The candidate to settle on, within tol of any moving line: the nearest
   // thing wins, so a neighbour beats a far-off edge that happens to line up
-  // a hair better. `box` is the moving box, for that nearness.
+  // a hair better. `box` is the moving box, for that nearness. A moving line
+  // is a number, or { at, loose } for the box's own centre line.
   _snapAxis(moving, cands, tol, box) {
     let best = null
-    for (const m of moving) {
+    const pref = EDGE_PREF * tol / SNAP_PX
+    for (const ml of moving) {
+      const m = typeof ml === 'number' ? ml : ml.at
       for (const c of cands) {
         const d = c.at - m
         if (Math.abs(d) > tol) continue
-        const score = Math.abs(d) + (box ? rectGap(box, c.b) / 40 : 0) + (c.bias || 0)
+        const score = Math.abs(d) + (box ? rectGap(box, c.b) / 40 : 0) + (c.bias || 0) + (c.loose || ml.loose ? pref : 0)
         if (!best || score < best.score) best = { d, at: c.at, b: c.b, score }
       }
     }

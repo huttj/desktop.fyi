@@ -52,9 +52,9 @@ export function SelectionActions({
     const compute = () => {
       const editing = (editor as unknown as { editing: unknown }).editing
       const b = editor.selectionBounds()
-      // out of the way while one of the board's own menus is up
+      // out of the way while one of the board's own menus is up, or while the thing is being dragged
       const menuOpen = !!editor.container.querySelector('.qd-menu-pop')
-      if (!b || editing || menuOpen) return setState(null)
+      if (!b || editing || menuOpen || editor.dragging) return setState(null)
       const now = Date.now()
       const ids: string[] = []
       // what the person sees as one thing: a group counts once, however many shapes it holds
@@ -78,7 +78,7 @@ export function SelectionActions({
       const single = only && metas.get(only)?.by === me.id && onlyRec?.typeName === 'shape' && !onlyRec.groupId ? only : null
       setState({ x: Math.round(s.x), y: Math.round(s.y), ids, count: units.size, allPinned, anyStale, single })
     }
-    const offs = (['selection', 'camera', 'change', 'edit', 'contextmenu'] as const).map((ev) => editor.on(ev, compute))
+    const offs = (['selection', 'camera', 'change', 'edit', 'contextmenu', 'dragging'] as const).map((ev) => editor.on(ev, compute))
     // menus come and go in the DOM without an event of their own
     const mo = new MutationObserver(compute)
     mo.observe(editor.container, { childList: true, subtree: true })
