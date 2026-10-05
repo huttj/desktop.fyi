@@ -254,3 +254,34 @@ export const traceSmooth = (ctx, pts, closed = false) => {
   ctx.lineTo(pts[(n - 1) * 2], pts[(n - 1) * 2 + 1])
   if (closed) ctx.closePath()
 }
+
+// The distances between two boxes, the way Figma's ⌥-hover shows them: on
+// each axis, the gap between the boxes when they are apart, else how far
+// each edge of `a` sits from the matching edge of `b` (one inside the other,
+// or overlapping). Each span sits at the middle of their overlap on the
+// other axis, or at a's middle when they don't overlap there, with an `ext`
+// line carrying b's edge out to meet it.
+// Returns { spans: [{ axis: 'x' | 'y', from, to, at }], ext: [{ x1, y1, x2, y2 }] }
+export const measureBetween = (a, b) => {
+  const spans = [], ext = []
+  for (const axis of ['x', 'y']) {
+    const h = axis === 'x'
+    const pos = (r) => (h ? r.x : r.y), size = (r) => (h ? r.w : r.h)
+    const cpos = (r) => (h ? r.y : r.x), csize = (r) => (h ? r.h : r.w)
+    const a0 = pos(a), a1 = a0 + size(a), b0 = pos(b), b1 = b0 + size(b)
+    const lo = Math.max(cpos(a), cpos(b)), hi = Math.min(cpos(a) + csize(a), cpos(b) + csize(b))
+    const across = hi > lo
+    const at = across ? (lo + hi) / 2 : cpos(a) + csize(a) / 2
+    // [from, to, the edge of b it reaches]
+    const pairs = a1 <= b0 ? [[a1, b0, b0]] : b1 <= a0 ? [[b1, a0, b1]] : [[Math.min(a0, b0), Math.max(a0, b0), b0], [Math.min(a1, b1), Math.max(a1, b1), b1]]
+    for (const [from, to, edge] of pairs) {
+      if (to - from <= 0) continue
+      spans.push({ axis, from, to, at })
+      if (across) continue
+      // b's edge, extended across the empty space to the span
+      const near = cpos(a) > cpos(b) ? cpos(b) + csize(b) : cpos(b)
+      ext.push(h ? { x1: edge, y1: near, x2: edge, y2: at } : { x1: near, y1: edge, x2: at, y2: edge })
+    }
+  }
+  return { spans, ext }
+}

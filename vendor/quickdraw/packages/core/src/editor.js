@@ -10,7 +10,7 @@ import {
   localBounds, pageBounds, inkBounds, toLocal, drawShape, hitShape, marqueeHits, tintedImage, tintedFrame, assetMedia,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, imageFrame,
   mapMarks, textLinkAt, textHitAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark, arrowLabelLayout, arrowMidpoint, ARROW_LABEL_PAD } from './shapes.js'
-import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith } from './geometry.js'
+import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith, measureBetween } from './geometry.js'
 import { sceneToSvg, exportFill } from './svg.js'
 import { BINDABLE, insideShape, anchorAt, rebindArrow, remapBindings } from './bindings.js'
 import { parseTldrawClipboard, convertTldrawContent } from './tldraw.js'
@@ -136,6 +136,11 @@ export class Editor {
     this.tool = 'select' // the pointer, like every desktop drawing tool
     this.selection = new Set()
     this.session = null
+    // ⌥ held with the pointer over another shape: { target } — the shape the
+    // overlay measures the selection's distances to (Figma's ⌥-hover)
+    this.measure = null
+    this._hoverAt = null // where a free pointer last was, in screen space
+    this._altHeld = false
     this.editing = null // { id, textarea, field: 'text' | 'label' }
     // the group a double-click dived into: its members select one at a time
     this.focusedGroup = null
@@ -839,8 +844,10 @@ export class Editor {
     c.addEventListener('paste', this._onPaste)
     // losing focus mid-gesture (a host app may reclaim the space key by
     // blurring the board) must not leave a sticky space-pan behind
-    this._onBlur = () => { this.spaceHeld = false; this._syncCursor() }
+    this._onBlur = () => { this.spaceHeld = false; this._altHeld = false; this._updateMeasure(); this._syncCursor() }
     c.addEventListener('blur', this._onBlur)
+    this._onLeave = () => { this._hoverAt = null; this._updateMeasure() }
+    c.addEventListener('pointerleave', this._onLeave)
     // ⌘= / ⌘- / ⌘0 zoom the board, never the page — wherever focus is,
     // unless it's in a field that isn't ours
     this._onDocKey = (e) => this._docKey(e)
@@ -960,6 +967,11 @@ export class Editor {
     if (this._pointers.has(e.pointerId)) this._pointers.set(e.pointerId, this._evPoint(e))
     const ss = this.session
     if (!ss) {
+      // over the board itself (not its toolbar or a popover)
+      const onBoard = e.target === this.canvas || e.target === this.overlay || e.target === this.container
+      this._hoverAt = onBoard ? this._evPoint(e) : null
+      this._altHeld = !!e.altKey
+      this._updateMeasure()
       this._hoverCursor(e)
       return
     }
@@ -2609,6 +2621,8 @@ export class Editor {
     }
     // ⌥ pressed mid-drag (before the pointer moves again) still turns it into a copy
     if (k === 'alt' && this.session?.type === 'translating') { this._copyForDrag(); return }
+    // ⌥ over another shape measures the selection's distance to it
+    if (k === 'alt' && !this._altHeld) { this._altHeld = true; this._updateMeasure() }
     if (meta && k === 'z') {
       e.preventDefault()
       // not while the button is down: undoing would close the gesture's
@@ -2673,7 +2687,9 @@ export class Editor {
       return
     }
     if (k.startsWith('arrow')) {
-      const d = (e.shiftKey ? 32 : 4) / 1
+      // a pixel at a time, ten with shift (Figma's steps): fine enough to
+      // land on a measured distance
+      const d = e.shiftKey ? 10 : 1
       const dx = k === 'arrowleft' ? -d : k === 'arrowright' ? d : 0
       const dy = k === 'arrowup' ? -d : k === 'arrowdown' ? d : 0
       if (this.selection.size) {
@@ -2723,6 +2739,26 @@ export class Editor {
     if (e.key === ' ') { this.spaceHeld = false; this._syncCursor() }
     // ⌥ let go mid-drag: back to a move
     if (e.key === 'Alt' && this.session?.type === 'translating') this._uncopyForDrag()
+    if (e.key === 'Alt') { this._altHeld = false; this._updateMeasure() }
+  }
+  // The shape ⌥ + the pointer is measuring to, if any: one that isn't part
+  // of the selection, under a pointer that isn't busy
+  _updateMeasure() {
+    let target = null
+    if (this._altHeld && this._hoverAt && !this.session && this.tool === 'select' && !this.editing && !this.cropping && this.selection.size) {
+      const p = this.screenToPage(this._hoverAt.x, this._hoverAt.y)
+      const hit = this.hitTest(p.x, p.y, { inside: true, unlocked: true })
+      const groups = new Set(this.selectionGroups())
+      const inSelection = hit && (this.selection.has(hit.id) || (hit.groupId && hit.groupId !== this.focusedGroup && groups.has(hit.groupId)))
+      if (hit && !inSelection) target = hit.id
+    }
+    if ((this.measure?.target || null) === target) return
+    this.measure = target ? { target } : null
+    this.requestRender()
+  }
+  // what the measure reaches: a grouped shape's whole group, unless that group is open
+  _measureBounds(shape) {
+    return shape.groupId && shape.groupId !== this.focusedGroup ? this._groupBounds(shape.groupId) : pageBounds(shape)
   }
   _zoomCenter(mult) {
     const { w, h } = this.viewSize()
@@ -3517,6 +3553,15 @@ export class Editor {
       ctx.restore()
     }
 
+    // ⌥ over another shape: the selection's distances to it, each with its
+    // number, the way Figma shows them
+    const mt = this.measure && !this.session && this.store.get(this.measure.target)
+    if (mt && this.selection.size) {
+      const a = this.selectionBounds()
+      const b = this._measureBounds(mt)
+      if (a && b) this._drawMeasures(ctx, a, b, t)
+    }
+
     // marquee
     if (this.session?.type === 'marquee' && this.session.rect) {
       const r = this.session.rect
@@ -3608,6 +3653,62 @@ export class Editor {
   renderCaptureTick() {
     this._renderCapture()
   }
+  // the measured shape outlined, b's edges extended (dashed) to where a span
+  // waits, each span a tick-ended line with its length in a pill
+  _drawMeasures(ctx, a, b, t) {
+    const { spans, ext } = measureBetween(a, b)
+    const z = this.camera.z
+    ctx.save()
+    ctx.strokeStyle = t.measure
+    ctx.fillStyle = t.measure
+    ctx.lineWidth = 1
+    const tl = this.pageToScreen(b.x, b.y)
+    ctx.strokeRect(Math.round(tl.x) + 0.5, Math.round(tl.y) + 0.5, Math.round(b.w * z), Math.round(b.h * z))
+    ctx.setLineDash([3, 3])
+    for (const e of ext) {
+      const p = this.pageToScreen(e.x1, e.y1), q = this.pageToScreen(e.x2, e.y2)
+      ctx.beginPath()
+      ctx.moveTo(Math.round(p.x) + 0.5, Math.round(p.y) + 0.5)
+      ctx.lineTo(Math.round(q.x) + 0.5, Math.round(q.y) + 0.5)
+      ctx.stroke()
+    }
+    ctx.setLineDash([])
+    ctx.font = '600 10px system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const tick = 4
+    const text = (n) => (Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1))
+    for (const sp of spans) {
+      const h = sp.axis === 'x'
+      const p = h ? this.pageToScreen(sp.from, sp.at) : this.pageToScreen(sp.at, sp.from)
+      const q = h ? this.pageToScreen(sp.to, sp.at) : this.pageToScreen(sp.at, sp.to)
+      ctx.beginPath()
+      if (h) {
+        const y = Math.round(p.y) + 0.5
+        ctx.moveTo(p.x, y); ctx.lineTo(q.x, y)
+        ctx.moveTo(p.x, y - tick); ctx.lineTo(p.x, y + tick)
+        ctx.moveTo(q.x, y - tick); ctx.lineTo(q.x, y + tick)
+      } else {
+        const x = Math.round(p.x) + 0.5
+        ctx.moveTo(x, p.y); ctx.lineTo(x, q.y)
+        ctx.moveTo(x - tick, p.y); ctx.lineTo(x + tick, p.y)
+        ctx.moveTo(x - tick, q.y); ctx.lineTo(x + tick, q.y)
+      }
+      ctx.stroke()
+      // the number in a pill beside the line, clear of it
+      const label = text(sp.to - sp.from)
+      const w = Math.ceil(ctx.measureText(label).width) + 10, hh = 16
+      const cx = (p.x + q.x) / 2, cy = (p.y + q.y) / 2
+      const bx = Math.round(h ? cx - w / 2 : cx + 6), by = Math.round(h ? cy + 6 : cy - hh / 2)
+      ctx.beginPath()
+      if (ctx.roundRect) ctx.roundRect(bx, by, w, hh, 4); else ctx.rect(bx, by, w, hh)
+      ctx.fill()
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(label, bx + w / 2, by + hh / 2 + 0.5)
+      ctx.fillStyle = t.measure
+    }
+    ctx.restore()
+  }
   _renderCapture() {
     const c = this.captureCanvas
     if (!c) return
@@ -3681,6 +3782,7 @@ export class Editor {
     c.removeEventListener('paste', this._onPaste)
     c.removeEventListener('contextmenu', this._onContextMenu)
     c.removeEventListener('blur', this._onBlur)
+    c.removeEventListener('pointerleave', this._onLeave)
     c.removeEventListener('scroll', this._onScroll)
     document.removeEventListener('keydown', this._onDocKey, true)
     document.fonts?.removeEventListener?.('loadingdone', this._onFonts)

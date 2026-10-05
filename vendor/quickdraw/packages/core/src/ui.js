@@ -775,7 +775,8 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       ['Bring forward / send backward', '] / ['], ['Bring to front / send to back', '⇧] / ⇧['],
       ['Align left / right', '⌥A / ⌥D'], ['Align top / bottom', '⌥W / ⌥S'],
       ['Align center / middle', '⌥H / ⌥V'], ['Distribute', '⇧⌥H / ⇧⌥V'],
-      ['Nudge', 'Arrows (Shift = 8px)'], ['Context menu', 'Right-click / long press'],
+      ['Nudge 1px (10px)', 'Arrows (⇧ Arrows)'], ['Measure to a shape', '⌥ hover'],
+      ['Context menu', 'Right-click / long press'],
     ]},
     { label: 'Dragging', rows: [
       ['Copy instead of move', '⌥ drag'], ['Move without snapping', '⌘ / Ctrl drag'], ['Proportional resize', '⇧ drag'],
