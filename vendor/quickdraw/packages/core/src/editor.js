@@ -2074,21 +2074,24 @@ export class Editor {
     this._syncCursor()
     this.requestRender()
   }
-  // The scale pair a handle pull comes to, given what's selected. Corners go
-  // proportional on shift, and always for shapes that only scale as a whole
-  // (images, notes, text). A side pull on a whole-scaling shape scales it as
-  // a whole by that axis, so its far edge stays pinned instead of drifting;
-  // text takes a side pull as its wrap width (see scaleShape). `lead` names
-  // the axis that snapped, so a proportional pull keeps that one exact and
-  // lets the other follow.
+  // The scale pair a handle pull comes to, given what's selected. A pull
+  // keeps the shape's proportions unless ⇧ frees it, from a side as well as
+  // a corner (a side pull scales the other axis to match, about its middle).
+  // `lead` names the axis that snapped, so a proportional corner pull keeps
+  // that one exact and lets the other follow.
   _resizeScales(handle, sx, sy, shapes, e, lead = null) {
+    if (!this._proportional(handle, shapes, e)) return [sx, sy]
     const corner = handle.length === 2
-    const whole = shapes.every((sh) => ['image', 'text', 'note'].includes(sh.type))
-    if (corner && (e.shiftKey || whole)) { const s = lead === 'y' ? sy : lead === 'x' ? sx : Math.max(sx, sy); return [s, s] }
-    return [sx, sy]
+    const s = corner ? (lead === 'y' ? sy : lead === 'x' ? sx : Math.max(sx, sy)) : handle === 'l' || handle === 'r' ? sx : sy
+    return [s, s]
   }
+  // Proportional unless ⇧ is held. Text and notes are the exception on a
+  // side pull, which sets their wrap width (sides) or type size (top and
+  // bottom) — see scaleShape — and from a corner they are always
+  // proportional, their size being one number.
   _proportional(handle, shapes, e) {
-    return handle.length === 2 && (e.shiftKey || shapes.every((sh) => ['image', 'text', 'note'].includes(sh.type)))
+    const textish = shapes.every((sh) => sh.type === 'text' || sh.type === 'note')
+    return handle.length === 2 ? textish || !e.shiftKey : !textish && !e.shiftKey
   }
   // ⌥ (or ctrl) resizes about the centre instead of the far edge
   _fromCenter(e) { return !!(e.altKey || e.ctrlKey) }
@@ -2134,10 +2137,14 @@ export class Editor {
     if (useY) { py = sy.at; dy = sy.d }
     // the box as it comes to be, for the guides
     const box = (() => {
-      const w = handle.includes('l') || handle.includes('r') ? (center ? Math.abs(px - (init.x + init.w / 2)) * 2 : Math.abs(px - (handle.includes('l') ? init.x + init.w : init.x))) : init.w
-      const h = handle.includes('t') || handle.includes('b') ? (center ? Math.abs(py - (init.y + init.h / 2)) * 2 : Math.abs(py - (handle.includes('t') ? init.y + init.h : init.y))) : init.h
-      const x = handle.includes('l') ? (center ? init.x + init.w / 2 - w / 2 : init.x + init.w - w) : center && handle.includes('r') ? init.x + init.w / 2 - w / 2 : init.x
-      const y = handle.includes('t') ? (center ? init.y + init.h / 2 - h / 2 : init.y + init.h - h) : center && handle.includes('b') ? init.y + init.h / 2 - h / 2 : init.y
+      let w = handle.includes('l') || handle.includes('r') ? (center ? Math.abs(px - (init.x + init.w / 2)) * 2 : Math.abs(px - (handle.includes('l') ? init.x + init.w : init.x))) : init.w
+      let h = handle.includes('t') || handle.includes('b') ? (center ? Math.abs(py - (init.y + init.h / 2)) * 2 : Math.abs(py - (handle.includes('t') ? init.y + init.h : init.y))) : init.h
+      // a proportional side pull: the other axis follows, about its middle
+      const sideX = proportional && (handle === 'l' || handle === 'r'), sideY = proportional && (handle === 't' || handle === 'b')
+      if (sideX) h = init.h * (w / init.w)
+      if (sideY) w = init.w * (h / init.h)
+      const x = handle.includes('l') ? (center ? init.x + init.w / 2 - w / 2 : init.x + init.w - w) : (center && handle.includes('r')) || sideY ? init.x + init.w / 2 - w / 2 : init.x
+      const y = handle.includes('t') ? (center ? init.y + init.h / 2 - h / 2 : init.y + init.h - h) : (center && handle.includes('b')) || sideX ? init.y + init.h / 2 - h / 2 : init.y
       return { x, y, w, h }
     })()
     if (useX) {
@@ -2164,8 +2171,11 @@ export class Editor {
       const snapped = this._snapResize(p, handle, init, center, ss.orig)
       if (snapped.guides.length) { ss.snapGuides = snapped.guides; p = snapped.p; lead = snapped.lead }
     }
-    const ax = center ? init.x + init.w / 2 : handle.includes('l') ? init.x + init.w : init.x // anchor
-    const ay = center ? init.y + init.h / 2 : handle.includes('t') ? init.y + init.h : init.y
+    // the anchor: the far edge, or the middle (⌥; or across a proportional
+    // side pull, where the other axis grows evenly about it)
+    const prop = this._proportional(handle, [...ss.orig.values()], e)
+    const ax = center || (prop && (handle === 't' || handle === 'b')) ? init.x + init.w / 2 : handle.includes('l') ? init.x + init.w : init.x
+    const ay = center || (prop && (handle === 'l' || handle === 'r')) ? init.y + init.h / 2 : handle.includes('t') ? init.y + init.h : init.y
     // scales clamp positive — dragging past the anchor pins at tiny, no flips
     let sx = handle.includes('l') || handle.includes('r')
       ? (p.x - ax) / ((handle.includes('l') ? init.x : init.x + init.w) - ax)
@@ -2216,10 +2226,12 @@ export class Editor {
     const [sx, sy] = this._resizeScales(h, (x1 - x0) / lb.w, (y1 - y0) / lb.h, [orig], e)
     // rebuild the box from the settled scales: about the centre, or away
     // from the anchored edge (the top/left for an axis that wasn't pulled)
+    const prop = this._proportional(h, [orig], e)
     if (center) { x0 = cx - (lb.w * sx) / 2; x1 = cx + (lb.w * sx) / 2; y0 = cy - (lb.h * sy) / 2; y1 = cy + (lb.h * sy) / 2 }
     else {
-      if (h.includes('l')) x0 = x1 - lb.w * sx; else x1 = x0 + lb.w * sx
-      if (h.includes('t')) y0 = y1 - lb.h * sy; else y1 = y0 + lb.h * sy
+      // the axis a proportional side pull didn't touch grows about its middle
+      if (h.includes('l')) x0 = x1 - lb.w * sx; else if (h.includes('r') || !prop) x1 = x0 + lb.w * sx; else { x0 = cx - (lb.w * sx) / 2; x1 = cx + (lb.w * sx) / 2 }
+      if (h.includes('t')) y0 = y1 - lb.h * sy; else if (h.includes('b') || !prop) y1 = y0 + lb.h * sy; else { y0 = cy - (lb.h * sy) / 2; y1 = cy + (lb.h * sy) / 2 }
     }
     const sc = scaleShape(orig, sx, sy, { handle: h })
     const nb = localBounds(sc)
