@@ -1179,26 +1179,12 @@ export class Editor {
     const minD = 1.25 / this.camera.z
     if (Math.hypot(p.x - ss.last.x, p.y - ss.last.y) < minD) return
     ss.last = p
-    // a held shift rules the stroke: from where shift went down, one straight
-    // segment to the pointer, snapped to 15° like the line tool; let go and
-    // the hand takes over again from the segment's end
-    if (e.shiftKey) {
-      if (!ss.rule) {
-        const prev = shape.props.pts
-        const n = prev.length
-        ss.rule = { at: n, x: prev[n - 3], y: prev[n - 2] }
-      }
-      let dx = p.x - shape.x - ss.rule.x, dy = p.y - shape.y - ss.rule.y
-      const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12)
-      const len = Math.hypot(dx, dy)
-      dx = Math.cos(a) * len
-      dy = Math.sin(a) * len
-      const ruled = shape.props.pts.slice(0, ss.rule.at)
-      ruled.push(ss.rule.x + dx, ss.rule.y + dy, e.pressure || 0.5)
-      this.store.update(ss.id, { props: { pts: ruled } })
-      return
-    }
-    ss.rule = null
+    // a held shift rules the stroke: whenever it goes down, the whole stroke
+    // so far becomes one straight line from where it began to the pointer,
+    // snapped to 15° like the line tool; let go and the hand takes over
+    // again from the line's end
+    if (e.shiftKey) return this._ruleDraw(p, e.pressure || 0.5)
+    ss.rule = false
     // coalesced points ride along for pens — extra fidelity is free
     const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e]
     const pts = shape.props.pts.slice()
@@ -1207,6 +1193,20 @@ export class Editor {
       pts.push(cp.x - shape.x, cp.y - shape.y, ce.pressure || 0.5)
     }
     this.store.update(ss.id, { props: { pts } })
+  }
+  // the stroke in progress as a straight line from its origin to `p`, snapped to 15°
+  _ruleDraw(p, pressure = 0.5) {
+    const ss = this.session
+    const shape = ss && this.store.get(ss.id)
+    if (!shape) return
+    ss.rule = true
+    ss.last = p
+    let dx = p.x - shape.x, dy = p.y - shape.y
+    const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12)
+    const len = Math.hypot(dx, dy)
+    dx = Math.cos(a) * len
+    dy = Math.sin(a) * len
+    this.store.update(ss.id, { props: { pts: [0, 0, shape.props.pts[2], dx, dy, pressure] } })
   }
   _endDraw() {
     const ss = this.session
@@ -1326,11 +1326,12 @@ export class Editor {
         ...(target ? { startBind: { id: target.id, ...anchorAt(target, p.x, p.y, { precise: e.altKey }) } } : {}),
       },
     })
-    this.session = { type: 'lineish', id }
+    this.session = { type: 'lineish', id, last: p }
   }
   _dragLineish(p, e) {
     const s = this.store.get(this.session.id)
     if (!s) return
+    this.session.last = p
     let dx = p.x - s.x, dy = p.y - s.y
     if (e.shiftKey) {
       const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12)
@@ -2623,6 +2624,10 @@ export class Editor {
     if (k === 'alt' && this.session?.type === 'translating') { this._copyForDrag(); return }
     // ⌥ over another shape measures the selection's distance to it
     if (k === 'alt' && !this._altHeld) { this._altHeld = true; this._updateMeasure() }
+    // ⇧ pressed mid-stroke straightens it right away, before the pointer moves
+    // again; mid-line it snaps the line to 15°
+    if (k === 'shift' && this.session?.type === 'drawing' && !this.session.rule) { this._ruleDraw(this.session.last); return }
+    if (k === 'shift' && this.session?.type === 'lineish') { this._dragLineish(this.session.last, { shiftKey: true, altKey: false }); return }
     if (meta && k === 'z') {
       e.preventDefault()
       // not while the button is down: undoing would close the gesture's
@@ -2740,6 +2745,9 @@ export class Editor {
     // ⌥ let go mid-drag: back to a move
     if (e.key === 'Alt' && this.session?.type === 'translating') this._uncopyForDrag()
     if (e.key === 'Alt') { this._altHeld = false; this._updateMeasure() }
+    // ⇧ let go: a stroke goes freehand again from the line's end; a line is unsnapped
+    if (e.key === 'Shift' && this.session?.type === 'drawing') this.session.rule = false
+    if (e.key === 'Shift' && this.session?.type === 'lineish') this._dragLineish(this.session.last, { shiftKey: false, altKey: false })
   }
   // The shape ⌥ + the pointer is measuring to, if any: one that isn't part
   // of the selection, under a pointer that isn't busy

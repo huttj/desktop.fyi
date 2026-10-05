@@ -781,6 +781,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     { label: 'Dragging', rows: [
       ['Copy instead of move', '⌥ drag'], ['Move without snapping', '⌘ / Ctrl drag'], ['Proportional resize', '⇧ drag'],
       ['Resize about the centre', '⌥ / Ctrl drag'], ['Bind arrow to exact point', '⌥ drag'],
+      ['Straight stroke or line (any time)', '⇧ while drawing'],
     ]},
     { label: 'View', rows: [
       ['Zoom to fit', '⇧1'], ['Reset zoom', '⇧0 / ⌘0'], ['Zoom in / out', '⌘+ / ⌘−'],
