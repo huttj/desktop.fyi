@@ -1081,6 +1081,19 @@ img.Avatar {
   color: var(--panel);
 }
 
+/* The people pill while watching someone: the inverted "on" face would put
+   the avatars and the eye count on black, so it keeps its face and gets a
+   firm edge instead (the notice on the board says who). */
+.TopBar-people.TopBar-button--on {
+  background: var(--panel);
+  color: var(--panel-fg);
+  border-color: var(--panel-fg);
+}
+
+.TopBar-people.TopBar-button--on:hover {
+  background: var(--panel-hover);
+}
+
 /* people picker */
 
 .PeoplePicker {
