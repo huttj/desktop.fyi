@@ -1964,13 +1964,19 @@ export class Editor {
   // the one beside it and it lands exactly there (ws/hs). Everything but an
   // edge meeting an edge is `loose`: it gives way to an edge a little further
   // off (EDGE_PREF), since edges lining up is what a tidy board is made of.
+  // A group offers itself as one box — its outer edges and middles, never
+  // its members' — unless it is the focused group, whose members stand alone.
   _snapCandidates(excludeIds) {
     const xs = [], ys = [], ws = [], hs = [], boxes = []
     const vp = this.viewportPageBounds()
     const onScreen = vp.w > 1 && vp.h > 1 ? boundsExpand(vp, Math.max(vp.w, vp.h) * 0.25) : null
+    const units = new Map()
     for (const s of this.shapesSorted()) {
       if (excludeIds.has(s.id)) continue
-      const b = pageBounds(s)
+      const key = s.groupId && s.groupId !== this.focusedGroup ? 'g:' + s.groupId : 's:' + s.id
+      units.set(key, boundsUnion(units.get(key), pageBounds(s)))
+    }
+    for (const b of units.values()) {
       if (onScreen && (b.x + b.w < onScreen.x || b.x > onScreen.x + onScreen.w || b.y + b.h < onScreen.y || b.y > onScreen.y + onScreen.h)) continue
       xs.push({ at: b.x, b }, { at: b.x + b.w / 2, b, loose: true }, { at: b.x + b.w, b })
       ys.push({ at: b.y, b }, { at: b.y + b.h / 2, b, loose: true }, { at: b.y + b.h, b })
