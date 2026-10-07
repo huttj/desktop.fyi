@@ -364,11 +364,11 @@ body {
   font-size: 12px;
   line-height: 1.2;
   white-space: nowrap;
-  background: var(--panel);
+  /* solid: a tooltip often sits over a photo, and a see-through one muddles both */
+  background: var(--panel-solid);
   color: var(--panel-fg);
   border: 1px solid var(--panel-line);
   box-shadow: var(--panel-shadow);
-  backdrop-filter: blur(10px);
   z-index: 38;
 }
 
@@ -1937,7 +1937,8 @@ html {
   max-width: 320px;
   padding: 2px;
   border-radius: 999px;
-  background: var(--panel);
+  /* solid, like the board's tooltip: it sits over whatever is under the pointer */
+  background: var(--panel-solid);
   border: 1px solid var(--panel-line);
   box-shadow: var(--panel-shadow);
   color: var(--panel-fg);
