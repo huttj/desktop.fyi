@@ -19,7 +19,7 @@ import { navigate } from './navigate'
 import { nameOf, type People } from './people'
 import { BoardSync, type SyncStatus } from './sync'
 import { TopBar } from './TopBar'
-import { MAX_UPLOAD_BYTES } from './uploads'
+import { MAX_UPLOAD_BYTES, imageLevels } from './uploads'
 import { applyView, mirrorViewToHash, parseView } from './viewLink'
 
 const GRIDS: GridId[] = ['none', 'lines', 'ruled', 'dots', 'crosses', 'iso']
@@ -610,6 +610,8 @@ function offBoard(target: EventTarget | null) {
  * front, and one dragged out of a page that won't share its bytes is fetched by the worker.
  */
 function installMediaImport(ed: Editor, notify: (message: string) => void) {
+  // pictures load like a map: a tiny copy first, sharper ones as you zoom in
+  ed.imageLevels = imageLevels
   let said = false
   ed.assetSrc = async (blob) => {
     if (blob.size > MAX_UPLOAD_BYTES) {

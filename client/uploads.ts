@@ -1,3 +1,5 @@
+import type { AssetRecord, ImageLevel } from '@quickdrawjs/core'
+
 /**
  * A picture or video added here starts out local: an object URL (see the
  * board's assetSrc hook), or a data URL from an older path. Neither fits the
@@ -8,6 +10,20 @@
 
 /** The most a picture or video may weigh (the worker's limit, a little under 100 MB). */
 export const MAX_UPLOAD_BYTES = 95 * 1024 * 1024
+
+/**
+ * The smaller copies of an uploaded picture the worker will make (see
+ * IMAGE_LEVELS in assetUploads.ts): a placeholder of a few KB, then sharper
+ * ones, each only when smaller than the picture itself. Quickdraw draws from
+ * the smallest copy sharp enough for the zoom. None for a picture still on
+ * its way up, or one that moves (GIFs), scales anyway (SVGs) or is a video.
+ */
+export function imageLevels(asset: AssetRecord): ImageLevel[] | null {
+  if (!/^\/api\/uploads\/[^?]+\.(jpg|png|webp|avif)$/.test(asset.src)) return null
+  const long = Math.max(asset.w || 0, asset.h || 0)
+  const levels = [64, 512, 1024].filter((size) => !long || size < long).map((size) => ({ size, src: `${asset.src}?s=${size}` }))
+  return levels.length ? levels : null
+}
 
 /** A src that still has to be uploaded. */
 export const isLocalSrc = (src: string) => src.startsWith('data:') || src.startsWith('blob:')

@@ -124,6 +124,11 @@ export class Editor {
     // picks it up (no press, marquee, double-click or context menu), though
     // it still draws, links still open, and the eraser still reaches it.
     this.shapeLocked = null
+    // Host hook: smaller copies of a picture, [{ size, src }] by the pixels
+    // on their long side, smallest first (null for none). The screen draws
+    // each picture from the smallest copy sharp enough at the zoom, a tiny
+    // one first so something shows at once; exports keep the original.
+    this.imageLevels = null
     // Host hook: how a followed link opens (default: a new tab). A host can
     // route its own addresses in place.
     this.openLink = null
@@ -3227,6 +3232,7 @@ export class Editor {
         live: hideEditing,
         onAssetLoad: () => this.requestRender(),
         halo: halo.has(s.id),
+        imageLevels: this.imageLevels,
       }
       if (alpha < 1) { ctx.save(); ctx.globalAlpha *= alpha }
       if (fade < 1) this._drawFaded(ctx, s, opts, fade)

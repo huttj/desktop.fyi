@@ -694,6 +694,82 @@ export function assetImage(store, assetId, onReady, live = false) {
   return null
 }
 
+// ---- levels of detail -------------------------------------------------------
+// A host that keeps smaller copies of its pictures (see the editor's
+// imageLevels hook) lets the screen draw each from the smallest copy sharp
+// enough for the pixels it covers, like a map: a tiny one first, so
+// something shows at once, then a sharper one as you zoom in, with whatever
+// is already loaded standing in while it comes. Copies not drawn for a while
+// are let go; the smallest stays.
+const levelCache = new Map() // src -> { img, ready, used, waiting: Set }
+export const LEVEL_KEEP_MS = 30_000
+let levelSweptAt = 0
+
+function levelEntry(src, onReady, now) {
+  let e = levelCache.get(src)
+  if (!e) {
+    const img = new Image()
+    e = { img, ready: false, used: now, waiting: new Set() }
+    levelCache.set(src, e)
+    img.onload = () => {
+      e.ready = true
+      const waiting = [...e.waiting]
+      e.waiting.clear()
+      for (const fn of waiting) fn()
+    }
+    img.onerror = () => {
+      e.failed = true
+      // those waiting draw again, from the next copy up
+      const waiting = [...e.waiting]
+      e.waiting.clear()
+      for (const fn of waiting) fn()
+    }
+    img.src = src
+  }
+  e.used = now
+  if (!e.ready && onReady) e.waiting.add(onReady)
+  return e
+}
+
+function sweepLevels(now, keep) {
+  if (now - levelSweptAt < 5_000) return
+  levelSweptAt = now
+  for (const [src, e] of levelCache) if (!keep.has(src) && now - e.used > LEVEL_KEEP_MS) levelCache.delete(src)
+}
+
+// Which copy to draw: the smallest loaded one at least `need` pixels on its
+// long side, else the sharpest loaded one below that; and which to fetch: the
+// one `need` calls for, plus the smallest, so there is something to show.
+// `levels` are { size, src }, smallest first; the original tops them.
+export function pickLevel(levels, need, isReady) {
+  const target = levels.find((l) => l.size >= need) || levels[levels.length - 1]
+  let draw = null
+  for (const l of levels) {
+    if (!isReady(l.src)) continue
+    if (l.size >= need) { draw = l; break }
+    draw = l
+  }
+  const fetch = [target]
+  if (!draw && levels[0] !== target) fetch.unshift(levels[0])
+  return { draw, fetch }
+}
+
+function levelImage(ctx, shape, asset, levels, opts) {
+  const now = Date.now()
+  // a copy that failed to load is skipped: the next one up stands in, the original last
+  const all = [...levels, { size: Infinity, src: asset.src }].filter((l, i, a) => i === a.length - 1 || !levelCache.get(l.src)?.failed)
+  // device pixels per page unit, camera and screen density included
+  const m = ctx.getTransform ? ctx.getTransform() : null
+  const k = m ? Math.hypot(m.a, m.b) : opts.zoom || 1
+  const f = imageFrame(shape)
+  const need = Math.max(f.w, f.h) * k
+  const { draw, fetch } = pickLevel(all, need, (src) => !!levelCache.get(src)?.ready)
+  for (const l of fetch) levelEntry(l.src, opts.onAssetLoad, now)
+  if (draw) levelEntry(draw.src, null, now)
+  sweepLevels(now, new Set([all[0].src]))
+  return draw ? levelCache.get(draw.src).img : null
+}
+
 // ---- rendering -------------------------------------------------------------
 
 export const dashFor = (dash, w) =>
@@ -957,7 +1033,7 @@ export function buildInkPath(path, shape) {
 
 // Draw one shape. ctx is already in PAGE space (camera applied by caller);
 // this applies the shape's own translate/rotate.
-// opts: { theme, store, zoom, onAssetLoad, ghost, hideText, cropPreview, halo }
+// opts: { theme, store, zoom, onAssetLoad, ghost, hideText, cropPreview, halo, imageLevels }
 // (halo: the words sit over a picture, see wordsOverPictures)
 export function drawShape(ctx, shape, opts) {
   const { theme } = opts
@@ -1104,7 +1180,10 @@ export function drawShape(ctx, shape, opts) {
       break
     }
     case 'image': {
-      let img = assetImage(opts.store, p.assetId, opts.onAssetLoad, opts.live)
+      // smaller copies, when the host keeps them (not for anything that moves)
+      const asset = opts.imageLevels ? opts.store.asset(p.assetId) : null
+      const levels = asset && !isVideoAsset(asset) && !isGifAsset(asset) ? opts.imageLevels(asset) : null
+      let img = levels?.length ? levelImage(ctx, shape, asset, levels, opts) : assetImage(opts.store, p.assetId, opts.onAssetLoad, opts.live)
       // a fading picture draws from a toned copy of itself (see tintedImage)
       if (img && opts.imageTint) img = opts.imageTint(img, !!assetMedia(p.assetId)) || img
       if (img) {

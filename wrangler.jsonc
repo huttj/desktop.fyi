@@ -39,6 +39,8 @@
   "r2_buckets": [
     { "binding": "UPLOADS", "bucket_name": "desktop-fyi-uploads" }
   ],
+  // Smaller copies of uploaded pictures, made once each and kept in UPLOADS (see assetUploads.ts)
+  "images": { "binding": "IMAGES" },
   "send_email": [
     { "name": "EMAIL", "remote": true }
   ]

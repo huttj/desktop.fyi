@@ -1,4 +1,5 @@
 import { Store, drawShape, pageBounds, themeOf, wordsOverPictures, type AssetRecord, type Bounds, type ShapeRecord } from '@quickdrawjs/core'
+import { imageLevels } from './uploads'
 
 /**
  * Draws one or more Quickdraw records into a canvas, fitted with a margin,
@@ -35,7 +36,7 @@ export function renderThumb(canvas: HTMLCanvasElement, records: ShapeRecord[], a
     const ox = (w - b.w * z) / 2 - b.x * z
     const oy = (h - b.h * z) / 2 - b.y * z
     ctx.setTransform(z * dpr, 0, 0, z * dpr, ox * dpr, oy * dpr)
-    for (const r of sorted) drawShape(ctx, r, { theme: t, store, zoom: z, onAssetLoad: draw, halo: halo.has(r.id) })
+    for (const r of sorted) drawShape(ctx, r, { theme: t, store, zoom: z, onAssetLoad: draw, halo: halo.has(r.id), imageLevels })
   }
   draw()
 }

@@ -102,6 +102,12 @@ export interface ShapeRecord {
 }
 
 /** A picture, GIF or video shared by image shapes (a data URL, or wherever the host keeps it). */
+/** A smaller copy of a picture: `size` pixels on its long side, at `src`. */
+export interface ImageLevel {
+  size: number
+  src: string
+}
+
 export interface AssetRecord {
   id: string
   typeName: 'asset'
@@ -265,6 +271,8 @@ export function drawShape(
     cropPreview?: boolean
     /** The words sit over a picture: give them a halo of the opposite tone (see wordsOverPictures). */
     halo?: boolean
+    /** Smaller copies of pictures to draw from, by the pixels the picture covers (see Editor.imageLevels). */
+    imageLevels?: ((asset: AssetRecord) => ImageLevel[] | null) | null
     onAssetLoad?: () => void
   }
 ): void
@@ -472,6 +480,12 @@ export class Editor {
   shapeFade: ((shape: ShapeRecord) => number) | null
   /** Host hook: a shape this returns true for cannot be picked up by the pointer (it still draws, its links open, the eraser reaches it). */
   shapeLocked: ((shape: ShapeRecord) => boolean) | null
+  /**
+   * Host hook: smaller copies of a picture, by the pixels on their long side, smallest first (null for none).
+   * The screen draws each picture from the smallest copy sharp enough at the zoom, a tiny one first so
+   * something shows at once, the original above them all; exports keep the original. Not asked of GIFs or videos.
+   */
+  imageLevels: ((asset: AssetRecord) => ImageLevel[] | null) | null
   /** Host hook: how a followed link opens (default `openUrl`, a new tab). */
   openLink: ((href: string) => void) | null
 
