@@ -7,7 +7,8 @@
 import { SIZES, HIGHLIGHT_ALPHA, HIGHLIGHT_SCALE, HIGHLIGHT_PLAIN, GRID_STEP, GRID_MAJOR } from './palette.js'
 import { lineHeads, headGeometry,
   localBounds, inkBounds, textLayout, noteLayout, geoLabelLayout, lineBaseline, lineRuns,
-  buildGeoPath, buildInkPath, dashFor, imageFrame, assetMedia, urlBadgeAt, NOTE_PAD, SEMI, arrowLabelLayout, ARROW_LABEL_PAD } from './shapes.js'
+  buildGeoPath, buildInkPath, dashFor, imageFrame, assetMedia, urlBadgeAt, NOTE_PAD, SEMI, arrowLabelLayout, ARROW_LABEL_PAD,
+  wordsOverPictures, haloFor, HALO_FIRM, HALO_SOFT } from './shapes.js'
 import { isVideoAsset } from './media.js'
 import { boundsUnion, boundsExpand, traceSmooth } from './geometry.js'
 
@@ -52,8 +53,10 @@ const strokeAttrs = (color, dash, w) => ({
 // A block of laid-out text: lines of tspans, run by run, so bold, italic,
 // code, links, underlines and strikes come through; highlights are bands
 // painted behind. `left(line)` is each line's left edge (its alignment).
-// Returns the highlight rects and the <text> element.
-const textBlockSvg = (theme, { lines, fontSize, font, lh, marks, text, left }, color, top) => {
+// Returns the highlight rects and the <text> element. With `halo` (the
+// words sit over a picture) the glow and the edge go first, as stroked
+// copies of the words, like the canvas strokes before it fills.
+const textBlockSvg = (theme, { lines, fontSize, font, lh, marks, text, left }, color, top, halo = null) => {
   const bl = lineBaseline(font, fontSize, lh)
   let bands = ''
   let spans = ''
@@ -71,7 +74,12 @@ const textBlockSvg = (theme, { lines, fontSize, font, lh, marks, text, left }, c
       }, esc(r.str))
     }
   })
-  return bands + tag('text', { 'font-family': font, 'font-size': n(fontSize), 'font-weight': 500, fill: color, 'xml:space': 'preserve' }, spans)
+  const base = { 'font-family': font, 'font-size': n(fontSize), 'font-weight': 500, 'xml:space': 'preserve' }
+  const glow = halo
+    ? [[HALO_SOFT, halo.soft], [HALO_FIRM, halo.firm]].map(([w, c]) =>
+      tag('text', { ...base, fill: 'none', stroke: c, 'stroke-width': n(fontSize * w), 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, spans)).join('')
+    : ''
+  return bands + glow + tag('text', { ...base, fill: color }, spans)
 }
 const urlBadgeSvg = (theme, shape, color) => {
   const b = urlBadgeAt(shape)
@@ -85,7 +93,7 @@ const urlBadgeSvg = (theme, shape, color) => {
 
 // `defs` collects shared definitions (hatch patterns, the note shadow, clip
 // paths) keyed by id, so each is emitted once
-export function shapeToSvg(shape, { theme, store, defs }) {
+export function shapeToSvg(shape, { theme, store, defs, halo = false }) {
   const p = shape.props
   const col = theme.colors[p.color || 'black']
   let body = ''
@@ -124,7 +132,7 @@ export function shapeToSvg(shape, { theme, store, defs }) {
       body = tag('path', { d: path.d, ...strokeAttrs(col.stroke, p.dash, SIZES[p.size]), fill })
       const lay = geoLabelLayout(shape)
       if (lay) {
-        body += textBlockSvg(theme, { ...lay, marks: p.labelMarks, text: p.label, left: (line) => p.w / 2 - line.w / 2 }, col.stroke, p.h / 2 - lay.textH / 2)
+        body += textBlockSvg(theme, { ...lay, marks: p.labelMarks, text: p.label, left: (line) => p.w / 2 - line.w / 2 }, col.stroke, p.h / 2 - lay.textH / 2, halo ? haloFor(col.stroke) : null)
       }
       break
     }
@@ -160,7 +168,7 @@ export function shapeToSvg(shape, { theme, store, defs }) {
       const l = textLayout(shape)
       const align = p.align || 'start'
       const left = (line) => (align === 'middle' ? l.w / 2 - line.w / 2 : align === 'end' ? l.w - line.w : 0)
-      body = textBlockSvg(theme, { ...l, marks: p.marks, text: p.text, left }, col.stroke, 0)
+      body = textBlockSvg(theme, { ...l, marks: p.marks, text: p.text, left }, col.stroke, 0, halo ? haloFor(col.stroke) : null)
       break
     }
     case 'note': {
@@ -248,7 +256,8 @@ export function sceneToSvg(shapes, { theme, store, grid = 'none', background = t
   if (!b) return null
   b = boundsExpand(b, margin)
   const defs = new Map()
-  const body = shapes.map((s) => shapeToSvg(s, { theme, store, defs })).join('\n')
+  const halo = wordsOverPictures(shapes)
+  const body = shapes.map((s) => shapeToSvg(s, { theme, store, defs, halo: halo.has(s.id) })).join('\n')
   let paper = ''
   if (background) {
     paper += tag('rect', { x: n(b.x), y: n(b.y), width: n(b.w), height: n(b.h), fill: exportFill(theme, background) })

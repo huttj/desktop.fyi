@@ -790,14 +790,104 @@ function fillPath(ctx, path, p, theme) {
   ctx.fill(path)
 }
 
+// ---- words over pictures ---------------------------------------------------
+// Words laid over a photo can sink into it (white on a bright sky, black on a
+// dark coat), so text that sits on a picture drawn beneath it gets a halo of
+// the opposite tone: light words a dark one, dark words a light one. Only
+// words with nothing of their own behind them qualify: free text, and labels
+// of boxes that aren't solidly filled (notes have paper, arrow labels a plate).
+
+// the halo for words in `color` (a #hex): a soft wide glow and a firm edge;
+// `light` says which way it went
+export function haloFor(color) {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color || '')
+  if (!m) return null
+  const h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1]
+  const lin = (i) => {
+    const c = parseInt(h.slice(i, i + 2), 16) / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const lum = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4)
+  // the crossover where black and white contrast equally with the colour
+  return lum > 0.18
+    ? { firm: 'rgba(0, 0, 0, 0.6)', soft: 'rgba(0, 0, 0, 0.22)', light: false }
+    : { firm: 'rgba(255, 255, 255, 0.8)', soft: 'rgba(255, 255, 255, 0.3)', light: true }
+}
+// halo widths, as fractions of the type size
+export const HALO_FIRM = 0.11
+export const HALO_SOFT = 0.24
+
+const haloable = (s) =>
+  s.type === 'text' ? !!s.props.text : s.type === 'geo' ? !!s.props.label && s.props.fill !== 'solid' : false
+
+// the page box the words of a text or label occupy, rotation included
+function wordsBounds(shape) {
+  const tb = textBlock(shape)
+  if (!tb || !tb.lines.length) return null
+  let x0 = Infinity, x1 = -Infinity
+  for (const line of tb.lines) {
+    const l = tb.left(line)
+    x0 = Math.min(x0, l)
+    x1 = Math.max(x1, l + line.w)
+  }
+  const y0 = tb.top, y1 = tb.top + tb.lines.length * tb.lh
+  if (!shape.rot) return { x: shape.x + x0, y: shape.y + y0, w: x1 - x0, h: y1 - y0 }
+  const lb = localBounds(shape)
+  const cx = shape.x + lb.x + lb.w / 2, cy = shape.y + lb.y + lb.h / 2
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const [px, py] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) {
+    const r = rotWith(shape.x + px, shape.y + py, cx, cy, shape.rot)
+    minX = Math.min(minX, r.x); maxX = Math.max(maxX, r.x)
+    minY = Math.min(minY, r.y); maxY = Math.max(maxY, r.y)
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+}
+
+// Ids of the shapes in `shapes` (in drawing order, bottom first) whose words
+// sit over a picture drawn before them: those get a halo.
+export function wordsOverPictures(shapes) {
+  const out = new Set()
+  const pictures = []
+  for (const s of shapes) {
+    if (s.type === 'image') { pictures.push(pageBounds(s)); continue }
+    if (!pictures.length || !haloable(s)) continue
+    const b = wordsBounds(s)
+    if (b && pictures.some((pb) => boundsIntersect(pb, b))) out.add(s.id)
+  }
+  return out
+}
+
 // Draw laid-out lines, run by run: bold / italic / code change the font,
 // highlight paints a band behind, links and underlines rule under, strike
 // rules through. `left(line)` gives each line's left edge (alignment).
-function drawTextLines(ctx, theme, tb, color, top) {
+// `halo` (see haloFor) strokes every run first, so the fill sits on it.
+function drawTextLines(ctx, theme, tb, color, top, halo) {
   const bl = lineBaseline(tb.font, tb.fontSize, tb.lh)
   ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
   const rule = Math.max(1, tb.fontSize / 16)
+  if (halo) {
+    ctx.save()
+    ctx.setLineDash([])
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    for (const [width, style] of [[HALO_SOFT, halo.soft], [HALO_FIRM, halo.firm]]) {
+      ctx.lineWidth = tb.fontSize * width
+      ctx.strokeStyle = style
+      let y = top + bl
+      for (const line of tb.lines) {
+        const x0 = tb.left(line)
+        for (const r of lineRuns(tb.text, line, tb.marks, tb.fontSize, tb.font)) {
+          ctx.font = runFont(r.st, tb.fontSize, tb.font)
+          ctx.strokeText(r.str, x0 + r.x, y)
+          if (r.st.href || r.st.u) ctx.strokeRect(x0 + r.x, y + tb.fontSize * 0.12, r.w, rule)
+          if (r.st.s) ctx.strokeRect(x0 + r.x, y - tb.fontSize * 0.3, r.w, rule)
+        }
+        y += tb.lh
+      }
+    }
+    ctx.restore()
+  }
   let y = top + bl
   for (const line of tb.lines) {
     const x0 = tb.left(line)
@@ -815,9 +905,9 @@ function drawTextLines(ctx, theme, tb, color, top) {
     y += tb.lh
   }
 }
-function drawLabel(ctx, theme, shape, color) {
+function drawLabel(ctx, theme, shape, color, halo = null) {
   const tb = textBlock(shape)
-  if (tb) drawTextLines(ctx, theme, tb, color, tb.top)
+  if (tb) drawTextLines(ctx, theme, tb, color, tb.top, halo)
 }
 // the link badge: a small disc with an arrow, at the shape's top-right
 function drawUrlBadge(ctx, theme, shape, color) {
@@ -867,7 +957,8 @@ export function buildInkPath(path, shape) {
 
 // Draw one shape. ctx is already in PAGE space (camera applied by caller);
 // this applies the shape's own translate/rotate.
-// opts: { theme, store, zoom, onAssetLoad, ghost, hideText, cropPreview }
+// opts: { theme, store, zoom, onAssetLoad, ghost, hideText, cropPreview, halo }
+// (halo: the words sit over a picture, see wordsOverPictures)
 export function drawShape(ctx, shape, opts) {
   const { theme } = opts
   const p = shape.props
@@ -933,7 +1024,7 @@ export function drawShape(ctx, shape, opts) {
       strokeStyled(ctx, p.dash, SIZES[p.size])
       ctx.stroke(path)
       ctx.setLineDash([])
-      if (opts.hideText !== 'label') drawLabel(ctx, theme, shape, col.stroke)
+      if (opts.hideText !== 'label') drawLabel(ctx, theme, shape, col.stroke, opts.halo ? haloFor(col.stroke) : null)
       break
     }
     case 'arrow':
@@ -992,7 +1083,7 @@ export function drawShape(ctx, shape, opts) {
       break
     }
     case 'text': {
-      if (opts.hideText !== 'text') drawLabel(ctx, theme, shape, col.stroke)
+      if (opts.hideText !== 'text') drawLabel(ctx, theme, shape, col.stroke, opts.halo ? haloFor(col.stroke) : null)
       break
     }
     case 'note': {

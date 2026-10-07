@@ -263,9 +263,19 @@ export function drawShape(
     ghost?: boolean
     /** Crop mode: draw the whole picture faintly around the crop window. */
     cropPreview?: boolean
+    /** The words sit over a picture: give them a halo of the opposite tone (see wordsOverPictures). */
+    halo?: boolean
     onAssetLoad?: () => void
   }
 ): void
+/**
+ * Ids of the shapes (in drawing order, bottom first) whose words sit over a
+ * picture drawn before them: free text, and labels of boxes that aren't
+ * solidly filled. The canvas and both exports draw those with a halo.
+ */
+export function wordsOverPictures(shapes: ShapeRecord[]): Set<string>
+/** The halo for words in a #hex colour: light words get a dark one, dark words a light one. Null for a colour it can't read. */
+export function haloFor(color: string): { firm: string; soft: string; light: boolean } | null
 /** Point hit-test in page space. */
 export function hitShape(shape: ShapeRecord, px: number, py: number, tol: number, store: Store): boolean
 
@@ -327,7 +337,7 @@ export function boundTerminals(arrow: ShapeRecord, store: Store): { start: { x: 
 export function rebindArrow(arrow: ShapeRecord, store: Store): ShapeRecord
 
 /** One shape as an SVG `<g>` string. `defs` collects shared definitions (patterns, filters, clips) by id. */
-export function shapeToSvg(shape: ShapeRecord, opts: { theme: Theme; store: Store; defs: Map<string, string> }): string
+export function shapeToSvg(shape: ShapeRecord, opts: { theme: Theme; store: Store; defs: Map<string, string>; halo?: boolean }): string
 /**
  * A drawn-order list of shapes as a complete SVG document string (null when empty), cut tight
  * to the drawing unless `margin` pads it. `background`: true for `theme.exportBackground`, a CSS

@@ -8,6 +8,7 @@ import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_S
 import {
   lineHeads, typeForHeads,
   localBounds, pageBounds, inkBounds, toLocal, drawShape, hitShape, marqueeHits, tintedImage, tintedFrame, assetMedia,
+  wordsOverPictures, haloFor,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, imageFrame,
   mapMarks, textLinkAt, textHitAt, urlBadgeAt, invalidateTextLayout, markAt, hasMark, setMark, arrowLabelLayout, arrowMidpoint, ARROW_LABEL_PAD } from './shapes.js'
 import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith, measureBetween } from './geometry.js'
@@ -1656,6 +1657,10 @@ export class Editor {
     ta.style.height = h + 'px'
     ta.style.textAlign = align
     ta.style.color = shape.type === 'note' ? this.theme.noteText : col.stroke
+    // words being typed over a picture keep the halo the canvas gives them
+    const over = shape.type !== 'note' && wordsOverPictures(this.shapesSorted().filter((s) => s.type === 'image' || s.id === shape.id).filter((s) => !this.shapeAlpha || this.shapeAlpha(s) > 0)).has(shape.id)
+    const halo = over ? haloFor(col.stroke) : null
+    ta.style.textShadow = halo ? `0 0 1px ${halo.firm}, 0 0 2px ${halo.firm}, 0 0 4px ${halo.soft}` : ''
     ta.style.transformOrigin = '0 0'
     ta.style.transform = (shape.rot ? `translate(${sx}px, ${sy}px) rotate(${shape.rot}rad) translate(${-sx}px, ${-sy}px) ` : '') + `scale(${k})`
   }
@@ -3143,7 +3148,8 @@ export class Editor {
     ctx.setTransform(k, 0, 0, k, -b.x * k, -b.y * k)
     // make sure every image asset is decoded before the snap
     await this._decodeAssets(shapes)
-    for (const s of shapes) drawShape(ctx, s, { theme: this.theme, store: this.store, zoom: k })
+    const halo = wordsOverPictures(shapes)
+    for (const s of shapes) drawShape(ctx, s, { theme: this.theme, store: this.store, zoom: k, halo: halo.has(s.id) })
     return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'))
   }
   // The drawing as an SVG document string — vectors all the way, so it
@@ -3198,11 +3204,16 @@ export class Editor {
     const vp = { x: -cam.x, y: -cam.y, w: w / cam.z, h: h / cam.z }
     const pad = 64 / cam.z
     const vis = boundsExpand(vp, pad)
+    const drawn = []
     for (const s of this.shapesSorted()) {
       const pb = pageBounds(s)
       if (pb.x + pb.w < vis.x || pb.x > vis.x + vis.w || pb.y + pb.h < vis.y || pb.y > vis.y + vis.h) continue
       const alpha = this.shapeAlpha ? this.shapeAlpha(s) : 1
-      if (alpha <= 0) continue
+      if (alpha > 0) drawn.push([s, alpha])
+    }
+    // only a picture actually drawn puts a halo on the words over it
+    const halo = wordsOverPictures(drawn.map(([s]) => s))
+    for (const [s, alpha] of drawn) {
       const fade = this.shapeFade ? Math.max(0, Math.min(1, this.shapeFade(s))) : 1
       const opts = {
         theme: this.theme, store: this.store, zoom: cam.z,
@@ -3215,6 +3226,7 @@ export class Editor {
         // GIFs and videos play while the screen draws them (see media.js)
         live: hideEditing,
         onAssetLoad: () => this.requestRender(),
+        halo: halo.has(s.id),
       }
       if (alpha < 1) { ctx.save(); ctx.globalAlpha *= alpha }
       if (fade < 1) this._drawFaded(ctx, s, opts, fade)

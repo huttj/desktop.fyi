@@ -11,7 +11,8 @@ export {
 } from './palette.js'
 export {
   pageBounds, inkBounds, localBounds, drawShape, hitShape, imageFrame, runsIn, mapMarks, textLinkAt, urlBadgeAt, invalidateTextLayout, lineHeads,
-  markAt, hasMark, setMark, normalizeMarks, textHitAt, textOffsetAt, arrowLabelLayout, arrowMidpoint } from './shapes.js'
+  markAt, hasMark, setMark, normalizeMarks, textHitAt, textOffsetAt, arrowLabelLayout, arrowMidpoint,
+  wordsOverPictures, haloFor } from './shapes.js'
 export { openUrl, normalizeText } from './editor.js'
 export { lockPage } from './page.js'
 export { TextSurface } from './textedit.js'
