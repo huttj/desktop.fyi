@@ -325,9 +325,12 @@ function Chips({ editor, laid: l, at, people, meId }: { editor: Editor; laid: La
   useEffect(() => editor.on('camera', rerender), [editor])
   if (!l) return null
   const newest = l.group.items[0]!
-  // at the foot of the thing under the pointer (its record on the board is already shifted into the room)
+  // at the foot of the thing under the pointer (its record on the board is already shifted into the room);
+  // a group is one thing, as on its desktop: the chip sits at the foot of the whole group, wherever in it you point
   const shape = editor.store.get(at) as ShapeRecord | undefined
-  const foot = shape ? pageBounds(shape) : null
+  const group = shape?.groupId && shape.groupId !== editor.focusedGroup ? shape.groupId : null
+  const members = group ? editor.groupMembers(group).map((id) => editor.store.get(id)).filter((r): r is ShapeRecord => r?.typeName === 'shape') : shape ? [shape] : []
+  const foot = unionBounds(members)
   const spot = foot ? { x: foot.x, y: foot.y + foot.h } : { x: l.box.x, y: l.box.y + l.box.h }
   const by = nameOf(people, newest.meta.by, meId)
   const where = newest.meta.by === l.group.boardId ? '' : ` on ${nameOf(people, l.group.boardId, meId)}'s desktop`
