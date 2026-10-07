@@ -10,6 +10,7 @@ import { Landing } from './Landing'
 import { navigate } from './navigate'
 import { nameOf, relativeTime, type People } from './people'
 import { unionBounds } from './thumb'
+import { imageLevels } from './uploads'
 import { itemsLink } from './viewLink'
 
 /**
@@ -78,8 +79,10 @@ function footprint(records: ShapeRecord[], origin: { x: number; y: number }): Bo
  * Packs the clumps, newest at the centre: each one walks a spiral outward from
  * a little inside the filled disc and takes the first spot where its footprint
  * lands on nothing, so later things settle into the gaps and corners earlier
- * ones left. Returns each clump's box in the room and the shift that puts its
- * records there.
+ * ones left. A clump strides in proportion to its size (a wall-sized photo
+ * stepping a cell at a time took seconds), and one that still finds nowhere
+ * goes just past everything, never on top of anything. Returns each clump's
+ * box in the room and the shift that puts its records there.
  */
 function layout(groups: EveryoneGroup[]): Array<Laid & { dx: number; dy: number }> {
   const occupied = new Set<number>()
@@ -96,6 +99,7 @@ function layout(groups: EveryoneGroup[]): Array<Laid & { dx: number; dy: number 
   const take = (boxes: Box[], ox: number, oy: number) => each(boxes, ox, oy, (k) => void occupied.add(k))
   const out: Array<Laid & { dx: number; dy: number }> = []
   let filled = 0
+  let right = 0 // the room's right edge so far
   for (const group of groups) {
     const records = group.items.map((it) => it.record as ShapeRecord | undefined).filter((r): r is ShapeRecord => !!r)
     const b = unionBounds(records)
@@ -105,19 +109,21 @@ function layout(groups: EveryoneGroup[]): Array<Laid & { dx: number; dy: number 
     // start a little inside the edge of what is filled: gaps there get used, and the search stays short
     let r = Math.sqrt(filled / Math.PI) * 0.6
     let t = hash(group.items[0]!.id) * Math.PI * 2
+    const stride = Math.max(CELL, Math.min(b.w, b.h) / 4)
     let spot: { x: number; y: number } | null = null
-    for (let n = 0; n < 80000; n++) {
+    for (let n = 0; n < 20000; n++) {
       const x = r * Math.cos(t) - b.w / 2, y = r * Math.sin(t) - b.h / 2
       if (free(print, x, y)) {
         spot = { x, y }
         break
       }
-      const dt = CELL / Math.max(r, CELL)
+      const dt = stride / Math.max(r, stride)
       t += dt
-      r += (CELL * dt) / (Math.PI * 2)
+      r += (stride * dt) / (Math.PI * 2)
     }
-    if (!spot) spot = { x: r - b.w / 2, y: -b.h / 2 }
+    if (!spot) spot = { x: right + GAP, y: -b.h / 2 }
     take(print, spot.x, spot.y)
+    right = Math.max(right, spot.x + b.w)
     filled += area
     const box = { x: spot.x, y: spot.y, w: b.w, h: b.h }
     out.push({ group, box, dx: box.x - b.x, dy: box.y - b.y })
@@ -205,6 +211,8 @@ export function Everyone({ me, welcome = false }: { me: Me | null; welcome?: boo
     ed.shapeAlpha = (s) => alphaAt(ages.current.get(s.id) ?? 0)
     ed.shapeFade = (s) => fadeAt(ages.current.get(s.id) ?? 0)
     ed.openLink = openUrl
+    // the room opens zoomed out over dozens of pictures: tiny copies first, sharper ones as you zoom in
+    ed.imageLevels = imageLevels
     // Until the room arrives, the newest's spot (the origin) sits in the middle.
     const { w, h } = ed.viewSize()
     ed.setCamera({ x: w / 2, y: h / 2, z: 1 })
