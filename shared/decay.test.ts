@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { runDecay, type DecayItem } from './decay'
-import { ARCHIVE_AT, BUMP, DAY_MS, DIRECT_CAP, HIDE_AT, PROXIMITY_R0, alphaAt, days, describeAge, describeSpan, pointsOf, provisionalAge, visibilityAt } from './freshness'
+import { ARCHIVE_AT, BUMP, DAY_MS, DIRECT_CAP, HIDE_AT, PROXIMITY_R0, alphaAt, days, describeAge, describeSpan, pointsOf, provisionalAge, sharedClock, visibilityAt } from './freshness'
 
 const T0 = Date.UTC(2026, 8, 1)
 const item = (id: string, over: Partial<DecayItem> = {}): DecayItem => ({
@@ -146,5 +146,34 @@ describe('describeSpan', () => {
     expect(describeSpan(0.2)).toBe('5h')
     expect(describeSpan(0.001)).toBe('1h')
     expect(describeSpan(1.99)).toBe('2d')
+  })
+})
+
+describe('groups', () => {
+  it('age as one, at the youngest member, and go together', () => {
+    // far apart, so only the group ties them
+    const items = [item('a', { score: 6.5, group: 'g' }), item('b', { score: 1, cx: 100_000, group: 'g' }), item('c', { score: 6.5, cx: 200_000 })]
+    const r = runDecay(items, [], T0 + DAY_MS)
+    expect(r.scores.get('a')).toBeCloseTo(2)
+    expect(r.scores.get('b')).toBeCloseTo(2)
+    expect(r.archived).toEqual(['c'])
+  })
+
+  it('a bump to one member is a bump to the group, not one per member', () => {
+    const items = [item('a', { score: 2, group: 'g' }), item('b', { score: 2, cx: 100_000, group: 'g' })]
+    const r = runDecay(items, [{ itemId: 'a', kind: 'edit' }, { itemId: 'b', kind: 'edit' }], T0)
+    expect(r.scores.get('a')).toBeCloseTo(2 - BUMP.edit)
+    expect(r.scores.get('b')).toBeCloseTo(2 - BUMP.edit)
+  })
+
+  it('share the freshest clock, and are kept if any member is', () => {
+    const now = T0 + DAY_MS / 2
+    const stale = { score: 2.5, scoredAt: T0, pending: 0, warmed: 0, pinned: false }
+    const fresh = { score: 0.2, scoredAt: T0, pending: 0, warmed: 0, pinned: false }
+    expect(sharedClock([stale, fresh], now)).toEqual(fresh)
+    const clock = sharedClock([stale, { ...stale, pinned: true }], now)!
+    expect(clock.pinned).toBe(true)
+    expect(provisionalAge(clock, now)).toBe(0)
+    expect(sharedClock([], now)).toBeNull()
   })
 })

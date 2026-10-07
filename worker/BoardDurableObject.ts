@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 import type { BoardRecord, ScribbleStroke, ShapeRecord } from '@quickdrawjs/core'
 import { approxBounds, boundIdsOf, centreOf, clumpGroups, groupIdOf, isDecoration, touchBoxes, type Reach } from '../shared/bounds'
 import { runDecay, type DecayEvent, type DecayItem, type EventKind } from '../shared/decay'
-import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, SPREAD_CAP, canSee, falloff, provisionalAge } from '../shared/freshness'
+import { BUMP, DAY_MS, DIRECT_CAP, FADE_START, HIDE_AT, PURGE_AFTER_DAYS, SOON, SPREAD_CAP, canSee, falloff, provisionalAge, sharedClock } from '../shared/freshness'
 import type { ClientMessage, Cursor, Peer, ServerMessage, Viewport, WireDiff } from '../shared/protocol'
 import type { DesktopStats, EveryoneGroup, FeedItem, ItemMeta, PlacedItem, Revision } from '../shared/types'
 
@@ -34,6 +34,8 @@ type Row = {
   cy: number
   pinned: number
   warmed: number
+  /** Quickdraw's groupId, kept beside the record so a group's members can be found without parsing every one. */
+  group_id: string | null
   [key: string]: SqlStorageValue
 }
 
@@ -117,6 +119,19 @@ export class BoardDurableObject extends DurableObject<Env> {
     const columns = this.sql.exec<{ name: string }>('PRAGMA table_info(records)').toArray().map((c) => c.name)
     if (!columns.includes('pinned')) this.sql.exec('ALTER TABLE records ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
     if (!columns.includes('warmed')) this.sql.exec('ALTER TABLE records ADD COLUMN warmed REAL NOT NULL DEFAULT 0')
+    if (!columns.includes('group_id')) {
+      this.sql.exec('ALTER TABLE records ADD COLUMN group_id TEXT')
+      this.sql.exec('CREATE INDEX IF NOT EXISTS records_group ON records(group_id) WHERE group_id IS NOT NULL')
+      // groups made before they aged together start out on their freshest member's clock
+      const groups = new Set<string>()
+      for (const r of this.sql.exec<{ id: string; data: string }>('SELECT id, data FROM records WHERE is_asset = 0').toArray()) {
+        const group = groupIdOf(JSON.parse(r.data) as BoardRecord)
+        if (!group) continue
+        this.sql.exec('UPDATE records SET group_id = ? WHERE id = ?', group, r.id)
+        groups.add(group)
+      }
+      this.unifyGroups(groups, Date.now())
+    }
   }
 
   private get sql() {
@@ -350,6 +365,12 @@ export class BoardDurableObject extends DurableObject<Env> {
     const restore: BoardRecord[] = []
     const drop: string[] = []
     const metas: Record<string, ItemMeta> = {}
+    // groups whose members' clocks may have drifted apart in this change
+    const groups = new Set<string>()
+    const touchGroup = (id: string) => {
+      const g = this.row(id)?.group_id
+      if (g) groups.add(g)
+    }
 
     this.ctx.storage.transactionSync(() => {
       for (const rec of Object.values(diff.put)) {
@@ -361,15 +382,19 @@ export class BoardDurableObject extends DurableObject<Env> {
         const existing = this.sql.exec<Row>('SELECT * FROM records WHERE id = ?', rec.id).toArray()[0]
         const isAsset = rec.typeName === 'asset'
         const { cx, cy } = isAsset ? { cx: 0, cy: 0 } : centreOf(rec)
+        const group = isAsset ? null : groupIdOf(rec)
         if (!existing) {
           this.sql.exec(
-            `INSERT INTO records (id, data, is_asset, layer, author, created_at, edited_by, edited_at, score, scored_at, pending, state, cx, cy)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, 'live', ?, ?)`,
-            rec.id, JSON.stringify(rec), isAsset ? 1 : 0, layer, userId, now, userId, now, now, cx, cy
+            `INSERT INTO records (id, data, is_asset, layer, author, created_at, edited_by, edited_at, score, scored_at, pending, state, cx, cy, group_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, 'live', ?, ?, ?)`,
+            rec.id, JSON.stringify(rec), isAsset ? 1 : 0, layer, userId, now, userId, now, now, cx, cy, group
           )
           if (!isAsset) {
             this.logEvent(rec.id, 'create', userId, now)
-            Object.assign(metas, this.warmNeighbours(rec.id, cx, cy))
+            const warmed = this.warmNeighbours(rec.id, cx, cy)
+            Object.assign(metas, warmed)
+            for (const id of Object.keys(warmed)) touchGroup(id)
+            if (group) groups.add(group)
           }
           accepted.put[rec.id] = rec
           metas[rec.id] = metaOf(this.row(rec.id)!)
@@ -390,11 +415,13 @@ export class BoardDurableObject extends DurableObject<Env> {
         }
         if (!existing.is_asset && kind === 'edit') this.keepRevision(existing, userId, now)
         // a move is housekeeping, not news: the edit stamp (which the feed and "touched by" read) is for edits
-        if (kind === 'move') this.sql.exec('UPDATE records SET data = ?, cx = ?, cy = ? WHERE id = ?', JSON.stringify(rec), cx, cy, rec.id)
-        else this.sql.exec('UPDATE records SET data = ?, edited_by = ?, edited_at = ?, cx = ?, cy = ? WHERE id = ?', JSON.stringify(rec), userId, now, cx, cy, rec.id)
+        if (kind === 'move') this.sql.exec('UPDATE records SET data = ?, cx = ?, cy = ?, group_id = ? WHERE id = ?', JSON.stringify(rec), cx, cy, group, rec.id)
+        else this.sql.exec('UPDATE records SET data = ?, edited_by = ?, edited_at = ?, cx = ?, cy = ?, group_id = ? WHERE id = ?', JSON.stringify(rec), userId, now, cx, cy, group, rec.id)
         if (!existing.is_asset && this.logEvent(rec.id, kind, userId, now)) {
           this.sql.exec('UPDATE records SET pending = MIN(?, pending + ?) WHERE id = ?', DIRECT_CAP, kind === 'edit' ? BUMP.edit : BUMP.move, rec.id)
         }
+        // a bump to a member is a bump to its group; joining a group brings it up to the group's best (or the group up to it)
+        if (group) groups.add(group)
         accepted.put[rec.id] = rec
         metas[rec.id] = metaOf(this.row(rec.id)!)
       }
@@ -410,6 +437,7 @@ export class BoardDurableObject extends DurableObject<Env> {
         this.sql.exec('DELETE FROM events WHERE item_id = ?', id)
         accepted.removed.push(id)
       }
+      Object.assign(metas, this.unifyGroups(groups, now))
     })
     return { accepted, restore, drop, metas, now }
   }
@@ -436,6 +464,28 @@ export class BoardDurableObject extends DurableObject<Env> {
       if (w < 0.01) continue
       this.sql.exec('UPDATE records SET warmed = MIN(?, warmed + ?) WHERE id = ?', SPREAD_CAP, BUMP.arrive * w, r.id)
       metas[r.id] = metaOf(this.row(r.id)!)
+    }
+    return metas
+  }
+
+  /**
+   * Puts every member of these groups on one clock, the freshest member's (see
+   * sharedClock), and returns the metas that changed.
+   */
+  private unifyGroups(groups: Iterable<string>, now: number): Record<string, ItemMeta> {
+    const metas: Record<string, ItemMeta> = {}
+    for (const group of groups) {
+      const rows = this.sql.exec<Row>("SELECT * FROM records WHERE group_id = ? AND state = 'live' AND is_asset = 0", group).toArray()
+      if (rows.length < 2) continue
+      const clock = sharedClock(rows.map(metaOf), now)!
+      for (const r of rows) {
+        if (r.score === clock.score && r.scored_at === clock.scoredAt && r.pending === clock.pending && r.warmed === clock.warmed && !!r.pinned === clock.pinned) continue
+        this.sql.exec(
+          'UPDATE records SET score = ?, scored_at = ?, pending = ?, warmed = ?, pinned = ? WHERE id = ?',
+          clock.score, clock.scoredAt, clock.pending, clock.warmed, clock.pinned ? 1 : 0, r.id
+        )
+        metas[r.id] = metaOf(this.row(r.id)!)
+      }
     }
     return metas
   }
@@ -475,13 +525,19 @@ export class BoardDurableObject extends DurableObject<Env> {
     return this.sql.exec<{ author: string }>('SELECT author FROM records WHERE id = ?', id).toArray()[0]?.author ?? null
   }
 
-  /** Pins/unpins or freshens the items this person may touch (their own, or anything on their desktop). */
+  /** Pins/unpins or freshens the items this person may touch (their own, or anything on their desktop). A group is kept or freshened whole. */
   private mark(ids: string[], userId: string, what: { pinned?: boolean; freshen?: boolean }): Record<string, ItemMeta> {
     const now = Date.now()
     const owner = this.owner
     const metas: Record<string, ItemMeta> = {}
     this.ctx.storage.transactionSync(() => {
+      const all = new Set(ids)
       for (const id of ids) {
+        const group = this.row(id)?.group_id
+        if (!group) continue
+        for (const m of this.sql.exec<{ id: string }>("SELECT id FROM records WHERE group_id = ? AND state = 'live'", group).toArray()) all.add(m.id)
+      }
+      for (const id of all) {
         const row = this.row(id)
         if (!row || row.state !== 'live' || row.is_asset) continue
         if (userId !== owner && userId !== row.author) continue
@@ -582,7 +638,7 @@ export class BoardDurableObject extends DurableObject<Env> {
   /** Ages everything, pays out the day's bumps, archives what is past saving, purges the long-archived. */
   runDailyPass(now = Date.now()) {
     const rows = this.sql.exec<Row>("SELECT * FROM records WHERE state = 'live' AND is_asset = 0").toArray()
-    const items: DecayItem[] = rows.map((r) => ({ id: r.id, cx: r.cx, cy: r.cy, createdAt: r.created_at, score: r.score, scoredAt: r.scored_at, pinned: !!r.pinned }))
+    const items: DecayItem[] = rows.map((r) => ({ id: r.id, cx: r.cx, cy: r.cy, createdAt: r.created_at, score: r.score, scoredAt: r.scored_at, pinned: !!r.pinned, group: r.group_id }))
     const events: DecayEvent[] = this.sql
       .exec<{ item_id: string; kind: EventKind }>('SELECT item_id, kind FROM events ORDER BY seq')
       .toArray()

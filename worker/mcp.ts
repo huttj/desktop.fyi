@@ -215,7 +215,7 @@ anything nearby for something new.
          (autosize: false with a numeric w wraps at that width)
   note   props: { text, color: "yellow", size: "m", font, scale: 1 }          a sticky note, 200 square by default
   geo    props: { geo, w, h, color, size, dash, fill, font, label?, labelSize? }   geo: ${GEO_IDS.join(' | ')}
-  any shape may carry groupId (a shared string): grouped things are one piece
+  any shape may carry groupId (a shared string): grouped things are one piece, and age as one (at the freshest member)
   arrow  props: { dx, dy, bend: 0, headStart: "none", headEnd: "arrow", color, size, dash, label?, labelSize? }
   line   props: { dx, dy, bend: 0, headStart: "none", headEnd: "none", color, size, dash, label?, labelSize? }
          (a label rides the middle of the line on a little plate of background, and moves with it)
@@ -241,7 +241,7 @@ What each kind is for (a desktop reads like a desk, not a slide):
          For a paragraph, a list or anything with its own alignment, do not stuff the label: put a text block on top
          of the box and group them. Same groupId on both, box at a lower z, text inside the box's bounds with about
          16 of padding, box sized from measure_items of the text plus that padding. Grouped, they select, move,
-         feed and show as one thing.
+         feed, age and show as one thing.
   arrow  a connection between two things, from one to another (headEnd: "arrow"); tie its ends with startBind /
          endBind: { id, nx: 0.5, ny: 0.5 } so it follows them when they move, and caption it with props.label
          rather than a text floated beside it. line is the same without a head.

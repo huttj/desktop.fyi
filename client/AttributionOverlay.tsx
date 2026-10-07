@@ -1,4 +1,4 @@
-import { pageBounds, type Editor } from '@quickdrawjs/core'
+import { pageBounds, type Editor, type ShapeRecord } from '@quickdrawjs/core'
 import { useEffect, useRef, useState } from 'react'
 import { describeAge, provisionalAge, visibilityAt } from '../shared/freshness'
 import type { ItemMeta } from '../shared/types'
@@ -18,7 +18,10 @@ interface Info {
 /**
  * Shows who made (and last touched) the hovered shape and how it is doing,
  * pinned above its top-left corner. Falls back to the single selected shape
- * so it also works on touch devices.
+ * (or the one selected group) so it also works on touch devices. A group ages
+ * as one, so it gets one tooltip: above the whole group, from its first
+ * member's making to its latest touch, unless the group is open (double-click)
+ * and its members are being picked one by one.
  */
 export function AttributionOverlay({ editor, people, metas, meId }: { editor: Editor; people: People; metas: Map<string, ItemMeta>; meId: string | null }) {
   const [info, setInfo] = useState<Info | null>(null)
@@ -26,26 +29,39 @@ export function AttributionOverlay({ editor, people, metas, meId }: { editor: Ed
   const lastKey = useRef('')
 
   useEffect(() => {
+    const groupOf = (shape: ShapeRecord | undefined) => (shape?.groupId && shape.groupId !== editor.focusedGroup ? shape.groupId : null)
     const compute = () => {
-      const selected = editor.selection.size === 1 ? [...editor.selection][0] : null
+      const sel = [...editor.selection]
+      const selGroup = sel.length > 1 ? groupOf(editor.store.get(sel[0]!) as ShapeRecord | undefined) : null
+      const selected = sel.length === 1 || (selGroup && sel.every((id) => (editor.store.get(id) as ShapeRecord | undefined)?.groupId === selGroup)) ? sel[0]! : null
       const id = hovered.current ?? selected
       const shape = id ? editor.store.get(id) : undefined
       const editing = (editor as unknown as { editing: unknown }).editing
-      // tucked away mid-drag, back where the thing lands
-      const meta = shape && shape.typeName === 'shape' && !editing && !editor.dragging ? metas.get(shape.id) : undefined
       let next: Info | null = null
-      if (shape && shape.typeName === 'shape' && meta) {
-        const b = pageBounds(shape)
-        const s = editor.pageToScreen(b.x, b.y)
-        next = {
-          x: Math.round(s.x),
-          y: Math.round(s.y),
-          by: meta.by,
-          at: meta.at,
-          editedBy: meta.editedBy !== meta.by ? meta.editedBy : null,
-          editedAt: meta.editedAt,
-          age: Math.round(provisionalAge(meta, Date.now()) * 100) / 100,
-          pinned: meta.pinned,
+      // tucked away mid-drag, back where the thing lands
+      if (shape && shape.typeName === 'shape' && !editing && !editor.dragging) {
+        const group = groupOf(shape)
+        const members = (group ? editor.groupMembers(group) : [shape.id]).map((m) => editor.store.get(m)).filter((m): m is ShapeRecord => m?.typeName === 'shape')
+        const known = members.flatMap((m) => (metas.has(m.id) ? [{ shape: m, meta: metas.get(m.id)! }] : []))
+        if (known.length) {
+          let b = pageBounds(members[0]!)
+          for (const m of members.slice(1)) b = union(b, pageBounds(m))
+          const s = editor.pageToScreen(b.x, b.y)
+          const first = known.reduce((a, k) => (k.meta.at < a.meta.at ? k : a))
+          const latest = known.reduce((a, k) => (k.meta.editedAt > a.meta.editedAt ? k : a))
+          const now = Date.now()
+          // members share one clock; the freshest stands for the group should one lag (a meta in flight)
+          const age = Math.min(...known.map((k) => provisionalAge(k.meta, now)))
+          next = {
+            x: Math.round(s.x),
+            y: Math.round(s.y),
+            by: first.meta.by,
+            at: first.meta.at,
+            editedBy: latest.meta.editedBy !== first.meta.by ? latest.meta.editedBy : null,
+            editedAt: latest.meta.editedAt,
+            age: Math.round(age * 100) / 100,
+            pinned: known.some((k) => k.meta.pinned),
+          }
         }
       }
       const key = next ? JSON.stringify(next) : ''
@@ -103,4 +119,10 @@ export function AttributionOverlay({ editor, people, metas, meId }: { editor: Ed
       <span className={`Attribution-edit Attribution-age Attribution-age--${info.pinned ? 'pinned' : v}`}>{describeAge(info.age, info.pinned)}</span>
     </div>
   )
+}
+
+function union(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
+  const x = Math.min(a.x, b.x)
+  const y = Math.min(a.y, b.y)
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y }
 }

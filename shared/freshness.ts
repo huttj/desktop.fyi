@@ -72,6 +72,28 @@ export function provisionalAge(meta: Pick<ItemMeta, 'score' | 'scoredAt' | 'pend
   return Math.max(0, meta.score + elapsed - Math.min(meta.pending, DIRECT_CAP) - Math.min(meta.warmed ?? 0, SPREAD_CAP))
 }
 
+export type Clock = Pick<ItemMeta, 'score' | 'scoredAt' | 'pending' | 'warmed' | 'pinned'>
+
+/**
+ * A group ages as one thing: every member runs on the freshest member's clock,
+ * and is kept if any member is. Grouping things (or adding to a group) brings
+ * them all up to the best of them; after that a bump to any member is a bump
+ * to the whole, and they fade, hide and go together.
+ */
+export function sharedClock(members: Clock[], now: number): Clock | null {
+  let best: Clock | null = null
+  let bestAge = Infinity
+  for (const m of members) {
+    const age = provisionalAge(m, now)
+    if (age < bestAge) {
+      best = m
+      bestAge = age
+    }
+  }
+  if (!best) return null
+  return { score: best.score, scoredAt: best.scoredAt, pending: best.pending, warmed: best.warmed, pinned: members.some((m) => m.pinned) }
+}
+
 export type Visibility = 'fresh' | 'fading' | 'hidden' | 'archived'
 
 export function visibilityAt(age: number): Visibility {

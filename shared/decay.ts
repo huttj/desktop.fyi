@@ -13,6 +13,7 @@ import { ARCHIVE_AT, BUMP, DAY_MS, DIRECT_CAP, SPREAD_CAP, TOTAL_CAP, falloff } 
  *     one) reaches each neighbour by inverse square. Using a thing is what
  *     keeps it: a comment keeps the thing it sits on alive, and a couple of
  *     new things next to an old one bring it right back
+ *   - a group ages as one thing, at its youngest member's age
  */
 export type EventKind = 'create' | 'move' | 'edit'
 
@@ -26,6 +27,8 @@ export interface DecayItem {
   scoredAt: number
   /** Pinned items never age (they still count as neighbours). */
   pinned?: boolean
+  /** Quickdraw's group: members settle at the youngest member's age. */
+  group?: string | null
 }
 
 export interface DecayEvent {
@@ -110,7 +113,19 @@ export function runDecay(items: DecayItem[], events: DecayEvent[], now: number):
     const age = item.pinned ? 0 : created.has(item.id) ? Math.max(0, (now - item.createdAt) / DAY_MS) : Math.max(0, item.score + elapsed - gained)
     scores.set(item.id, age)
     bumps.set(item.id, gained)
-    if (age >= ARCHIVE_AT) archived.push(item.id)
+  }
+
+  // 6. A group ages as one: everyone takes the youngest member's age (the best
+  //    any of them earned, not the sum), so they hide and go together.
+  const youngest = new Map<string, number>()
+  for (const item of items) {
+    if (!item.group) continue
+    const age = scores.get(item.id)!
+    youngest.set(item.group, Math.min(youngest.get(item.group) ?? Infinity, age))
+  }
+  for (const item of items) {
+    if (item.group) scores.set(item.id, youngest.get(item.group)!)
+    if (scores.get(item.id)! >= ARCHIVE_AT) archived.push(item.id)
   }
   return { scores, archived, bumps }
 }
