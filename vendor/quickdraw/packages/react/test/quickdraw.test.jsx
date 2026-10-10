@@ -98,9 +98,14 @@ describe('<Quickdraw />', () => {
     const themeBtns = [...container.querySelectorAll('.qd-menu-row')]
       .find((r) => r.textContent.trim().startsWith('Theme'))
       .querySelectorAll('.qd-seg-btn')
-    act(() => { themeBtns[1].click() })
+    act(() => { themeBtns[2].click() })
     expect(onThemeChange).toHaveBeenCalledWith('dark', ref.current.editor)
     expect(container.firstChild.dataset.qdTheme).toBe('dark')
+    // 'auto' reports the choice; what shows is on the editor
+    act(() => { themeBtns[1].click() })
+    expect(onThemeChange).toHaveBeenLastCalledWith('auto', ref.current.editor)
+    expect(ref.current.editor.theme.id).toBe('light')
+    expect(container.firstChild.dataset.qdTheme).toBe('light')
   })
 
   it('two components sharing one store see the same document', () => {

@@ -56,6 +56,7 @@ const ICONS = {
   chevronLeft: SVG('<path d="m15 18-6-6 6-6"/>'),
   sun: SVG('<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>'),
   moon: SVG('<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>'),
+  auto: SVG('<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor"/>'),
   // context menu glyphs
   cut: SVG('<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>'),
   paste: SVG('<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>'),
@@ -581,10 +582,10 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     checkRow('Snap to edges', 'Dragged and resized boxes settle onto other boxes\' edges, centres and sizes', () => editor.snap.edges, (on) => editor.setSnap({ edges: on }))
     checkRow('Snap to gaps', 'Boxes settle into even spacing: the gap next door, or the middle of two', () => editor.snap.gaps, (on) => editor.setSnap({ gaps: on }))
     if (opts.themeToggle) {
-      segment('Theme', ['light', 'dark'], {
-        icons: { light: ICONS.sun, dark: ICONS.moon },
-        tips: { light: 'Light theme', dark: 'Dark theme' },
-        current: editor.theme.id,
+      segment('Theme', ['light', 'auto', 'dark'], {
+        icons: { light: ICONS.sun, auto: ICONS.auto, dark: ICONS.moon },
+        tips: { light: 'Light theme', auto: 'Match the system', dark: 'Dark theme' },
+        current: editor.themeChoice,
         onPick: (id) => editor.setTheme(id),
       })
     }

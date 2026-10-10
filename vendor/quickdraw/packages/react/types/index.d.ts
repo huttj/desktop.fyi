@@ -1,6 +1,6 @@
 import * as React from 'react'
 import type {
-  Camera, Diff, DiffSource, Editor, BoardUI, GridId, SnapSettings, Snapshot, Store, Styles, ThemeId,
+  Camera, Diff, DiffSource, Editor, BoardUI, GridId, SnapSettings, Snapshot, Store, Styles, ThemeChoice,
 } from '@quickdrawjs/core'
 
 export * from '@quickdrawjs/core'
@@ -11,8 +11,8 @@ export interface QuickdrawRef {
 }
 
 export interface QuickdrawProps {
-  /** 'light' | 'dark' — live-switchable. */
-  theme?: ThemeId | string
+  /** 'light' | 'dark' | 'auto' (follows the system) — live-switchable. */
+  theme?: ThemeChoice | string
   /** 'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso' — the backdrop. Live-switchable. */
   grid?: GridId
   /** Lock input (also hides the toolbar). */
@@ -44,8 +44,8 @@ export interface QuickdrawProps {
   onMount?: (editor: Editor, ui: BoardUI) => void
   onChange?: (diff: Diff, source: DiffSource, editor: Editor) => void
   onSelectionChange?: (ids: string[], editor: Editor) => void
-  /** The in-board switch changed the theme — mirror it into your own state. */
-  onThemeChange?: (theme: ThemeId, editor: Editor) => void
+  /** The in-board switch changed the theme, or the system flipped under 'auto' — mirror it into your own state. `editor.theme.id` is what shows. */
+  onThemeChange?: (theme: ThemeChoice, editor: Editor) => void
   /** The in-board switch changed the grid. */
   onGridChange?: (grid: GridId, editor: Editor) => void
   /** A snapping toggle in the board menu moved. */

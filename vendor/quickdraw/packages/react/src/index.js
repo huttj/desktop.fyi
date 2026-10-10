@@ -12,7 +12,7 @@ export * from '@quickdrawjs/core'
  * <Quickdraw /> — a complete whiteboard in a div.
  *
  * props:
- *   theme        'light' | 'dark' (live-switchable)
+ *   theme        'light' | 'dark' | 'auto' (follows the system; live-switchable)
  *   grid         'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso' — the backdrop (live-switchable)
  *   readonly     lock input (also hides the toolbar)
  *   hideUi       hide the stock toolbar (bring your own chrome)
@@ -29,7 +29,8 @@ export * from '@quickdrawjs/core'
  *   onMount      (editor, ui) => void
  *   onChange     (diff, source, editor) => void — every document change
  *   onSelectionChange  (ids: string[], editor) => void
- *   onThemeChange      (themeId, editor) => void — the in-board switch moved it
+ *   onThemeChange      (choice, editor) => void — the in-board switch moved it, or the
+ *                      system flipped under 'auto' (editor.theme.id is what shows)
  *   onGridChange       (gridId, editor) => void
  *   onSave       (blob, background) => void — intercept toolbar PNG export
  *   className / style  applied to the host div
@@ -123,7 +124,7 @@ export const Quickdraw = forwardRef(function Quickdraw(props, ref) {
     // (and any external toggle) can follow along
     const unsubTheme = editor.on('theme', () => {
       host.dataset.qdTheme = editor.theme.id
-      cbRef.current.onThemeChange?.(editor.theme.id, editor)
+      cbRef.current.onThemeChange?.(editor.themeChoice, editor)
     })
     const unsubGrid = editor.on('grid', () => {
       cbRef.current.onGridChange?.(editor.grid, editor)

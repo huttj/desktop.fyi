@@ -19,6 +19,8 @@ export type TextAlignId = 'start' | 'middle' | 'end'
 export type HeadId = 'none' | 'arrow' | 'triangle' | 'dot'
 export type GeoId = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'hexagon' | 'star' | 'cloud'
 export type ThemeId = 'light' | 'dark'
+/** A theme, or 'auto' to follow the system's light/dark setting. */
+export type ThemeChoice = ThemeId | 'auto'
 export type GridId = 'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso'
 
 export interface Bounds { x: number; y: number; w: number; h: number }
@@ -423,7 +425,7 @@ export class Store {
 export interface EditorOptions {
   container: HTMLElement
   store?: Store
-  theme?: ThemeId | string
+  theme?: ThemeChoice | string
   grid?: GridId
   snap?: Partial<SnapSettings>
   readonly?: boolean
@@ -454,7 +456,10 @@ export class Editor {
   canvas: HTMLCanvasElement
   overlay: HTMLCanvasElement
   store: Store
+  /** What is showing; on 'auto' it follows the system. */
   theme: Theme
+  /** What was asked for: 'light', 'dark', or 'auto'. */
+  themeChoice: ThemeChoice
   grid: GridId
   snap: SnapSettings
   readonly: boolean
@@ -512,7 +517,8 @@ export class Editor {
   // tools / styles
   setTool(tool: ToolId): void
   setGeoKind(kind: GeoId): void
-  setTheme(id: ThemeId | string): void
+  /** 'light', 'dark', or 'auto' (follow the system); emits 'theme', also when the system flips under 'auto'. */
+  setTheme(id: ThemeChoice | string): void
   /** 'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso' — the backdrop behind the drawing. */
   setGrid(id: GridId): void
   /** What a dragged or resized box settles onto; fires 'snap'. */

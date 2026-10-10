@@ -99,11 +99,18 @@ const bendMidpoint = (pr) => {
   return { x: mid[mi], y: mid[mi + 1] }
 }
 
+// what the system asks for, for the 'auto' theme: light where it can't say
+const systemTheme = () =>
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+
 export class Editor {
   constructor({ container, store, theme = 'light', grid = 'lines', readonly = false, camera, styles, geoKind, snap } = {}) {
     this.container = container
     this.store = store || new Store()
-    this.theme = themeOf(theme)
+    // 'light', 'dark' or 'auto'; auto follows the system's light/dark
+    // setting and `theme` is whichever that resolves to right now
+    this.themeChoice = theme === 'auto' ? 'auto' : themeOf(theme).id
+    this.theme = themeOf(this.themeChoice === 'auto' ? systemTheme() : theme)
     this.grid = GRID_IDS.includes(grid) ? grid : 'lines'
     // What a dragged or resized box settles onto: other boxes' edges, centre
     // lines and sizes; and the gaps between boxes (equal spacing, or the
@@ -417,12 +424,16 @@ export class Editor {
     return this._toolStyles[tool] || { ...this._baseStyles, ...(TOOL_STYLE_DEFAULTS[tool] || {}) }
   }
   setTheme(id) {
-    const t = themeOf(id)
-    if (t === this.theme) return
-    this._crossfadeTheme()
-    this.theme = t
-    this.container.dataset.qdTheme = t.id
-    this.requestRender()
+    const choice = id === 'auto' ? 'auto' : themeOf(id).id
+    const t = themeOf(choice === 'auto' ? systemTheme() : choice)
+    if (choice === this.themeChoice && t === this.theme) return
+    this.themeChoice = choice
+    if (t !== this.theme) {
+      this._crossfadeTheme()
+      this.theme = t
+      this.container.dataset.qdTheme = t.id
+      this.requestRender()
+    }
     this.emit('theme')
   }
   // Freeze the outgoing theme as a bitmap over the board and fade it out, so
@@ -863,6 +874,10 @@ export class Editor {
     this._onScroll = () => { if (c.scrollLeft || c.scrollTop) { c.scrollLeft = 0; c.scrollTop = 0 } }
     c.addEventListener('scroll', this._onScroll)
     this._ro = new ResizeObserver(() => this.requestRender())
+    // on 'auto' the board turns with the system's light/dark switch
+    this._systemDark = typeof window !== 'undefined' ? window.matchMedia?.('(prefers-color-scheme: dark)') : null
+    this._onSystemTheme = () => { if (this.themeChoice === 'auto') this.setTheme('auto') }
+    this._systemDark?.addEventListener?.('change', this._onSystemTheme)
     this._ro.observe(c)
     // web fonts landing after the first paint: re-measure and redraw
     this._onFonts = () => { invalidateTextLayout(); this.requestRender() }
@@ -3811,6 +3826,7 @@ export class Editor {
     this._unsubHistory()
     this._unsubReact()
     this._ro.disconnect()
+    this._systemDark?.removeEventListener?.('change', this._onSystemTheme)
     const c = this.container
     c.removeEventListener('pointerdown', this._onDown)
     c.removeEventListener('pointermove', this._onMove)

@@ -1,4 +1,4 @@
-import { Quickdraw, openUrl, pageBounds, useQuickdrawStore, type Editor, type GridId, type SnapSettings, type ThemeId } from '@quickdrawjs/react'
+import { Quickdraw, openUrl, pageBounds, useQuickdrawStore, type Editor, type GridId, type SnapSettings, type ThemeChoice, type ThemeId } from '@quickdrawjs/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react'
 import type { Peer } from '../shared/protocol'
 import type { ItemMeta, Me, Profile } from '../shared/types'
@@ -56,8 +56,10 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   const editorRef = useRef<Editor | null>(null)
   const syncRef = useRef<BoardSync | null>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
+  // Auto (the system's light/dark switch) unless a theme was picked on the board; `theme` is the one showing.
+  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(() => readPref('dfyi:theme-choice', ['light', 'auto', 'dark'], 'auto'))
   const [theme, setTheme] = useState<ThemeId>(() =>
-    readPref('dfyi:theme', ['light', 'dark'], window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    themeChoice === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : themeChoice
   )
   const [grid, setGrid] = useState<GridId>(() => readPref('dfyi:grid', GRIDS, 'dots'))
   const [snap, setSnap] = useState<SnapSettings>(() => ({ edges: readPref('dfyi:snap-edges', ['1', '0'], '1') === '1', gaps: readPref('dfyi:snap-gaps', ['1', '0'], '1') === '1' }))
@@ -322,20 +324,6 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
   )
 
   useEffect(() => (editor ? installFreshness(editor, fresh.current) : undefined), [editor])
-  // The system's light/dark switch wins whenever it flips; a choice made here on the board holds until then.
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const follow = () => {
-      setTheme(mq.matches ? 'dark' : 'light')
-      try {
-        localStorage.removeItem('dfyi:theme')
-      } catch {
-        /* private mode */
-      }
-    }
-    mq.addEventListener('change', follow)
-    return () => mq.removeEventListener('change', follow)
-  }, [])
 
 
   // Watching: my camera follows theirs as it moves; touching the board myself ends it.
@@ -470,14 +458,15 @@ export function Canvas({ handle, me, onMeChange, onSignOut }: { handle: string; 
     <div className={`CanvasRoot${me ? '' : ' CanvasRoot--viewer'}`} data-theme={theme} onPointerMove={onPointerMove} onPointerLeave={onPointerLeave} {...guards}>
       <Quickdraw
         store={store}
-        theme={theme}
+        theme={themeChoice}
         grid={grid}
         styles={{ color: 'black' }}
         watermark={false}
         onMount={onMount}
-        onThemeChange={(t) => {
-          setTheme(t)
-          writePref('dfyi:theme', t)
+        onThemeChange={(choice, ed) => {
+          setThemeChoice(choice)
+          setTheme(ed.theme.id)
+          writePref('dfyi:theme-choice', choice)
         }}
         onGridChange={(g) => {
           setGrid(g)
